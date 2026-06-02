@@ -8,8 +8,9 @@ CapBar currently supports:
 - Codex current-session and weekly limits via local `~/.codex/sessions` `rate_limits` metadata.
 - Claude Code account login via `claude auth login`.
 - Claude Code account status via `claude auth status --json`.
+- Claude Code 5-hour and weekly limits via local Claude Code OAuth credentials and Anthropic's OAuth usage endpoint.
 
-Claude Code's CLI currently exposes login status noninteractively, but not the 5-hour and weekly percentage values shown in its interactive UI. CapBar shows those rows as unavailable until Claude exposes that data through the CLI or a local state file.
+Claude Code usage is best-effort because Anthropic's local credential locations and OAuth usage endpoint are not public stable contracts. CapBar checks `~/.claude/.credentials.json` first, then the macOS Keychain item `Claude Code-credentials`, and never logs full tokens.
 
 ## Logos
 

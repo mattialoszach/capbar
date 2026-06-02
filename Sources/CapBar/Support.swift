@@ -17,6 +17,10 @@ enum LocalPaths {
         homeDirectory.appendingPathComponent(".claude/projects")
     }
 
+    static var claudeCredentialsFile: URL {
+        homeDirectory.appendingPathComponent(".claude/.credentials.json")
+    }
+
     static var codexAuthFile: URL {
         homeDirectory.appendingPathComponent(".codex/auth.json")
     }

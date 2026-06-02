@@ -44,6 +44,21 @@ struct PopoverView: View {
         .padding(EdgeInsets(top: 16, leading: 16, bottom: 16, trailing: 16))
         .frame(width: 360)
         .background(.ultraThinMaterial)
+        .overlay(alignment: .topTrailing) {
+            Button {
+                NSApplication.shared.terminate(nil)
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(Color.white.opacity(0.55))
+                    .frame(width: 18, height: 18)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Quit")
+            .padding(.top, 16)
+            .padding(.trailing, 16)
+        }
         .environment(\.colorScheme, .dark)
     }
 
@@ -67,19 +82,8 @@ struct PopoverView: View {
             }
 
             Spacer()
-
-            Button {
-                NSApplication.shared.terminate(nil)
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(Color.white.opacity(0.55))
-                    .frame(width: 22, height: 22)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .help("Quit")
         }
+        .padding(.trailing, 34)
     }
 
     private var menuBarProviderBinding: Binding<ProviderID> {

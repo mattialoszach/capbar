@@ -33,10 +33,9 @@ final class UsageStore: ObservableObject {
         lastError = nil
 
         let task = Task.detached(priority: .utility) {
-            [
-                CodexUsageReader().read(),
-                ClaudeUsageReader().read()
-            ]
+            let codex = CodexUsageReader().read()
+            let claude = await ClaudeUsageReader().read()
+            return [codex, claude]
         }
 
         Task { @MainActor [weak self] in
