@@ -103,30 +103,27 @@ private struct AccountLine: View {
     var body: some View {
         HStack(spacing: 8) {
             Circle()
-                .fill(snapshot.account.isLoggedIn ? Color.white.opacity(0.82) : Color.white.opacity(0.22))
+                .fill(statusColor)
                 .frame(width: 7, height: 7)
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(snapshot.account.isLoggedIn ? "Logged in" : "Not logged in")
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(statusColor)
                 if let detail = accountDetail {
                     Text(detail)
                         .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(Color.white.opacity(0.52))
+                        .foregroundStyle(detailColor)
                         .lineLimit(1)
                 }
             }
 
             Spacer()
 
-            Button(action: onRefresh) {
-                Image(systemName: isRefreshing ? "arrow.triangle.2.circlepath" : "arrow.clockwise")
-                    .font(.system(size: 12, weight: .semibold))
-            }
-            .buttonStyle(.plain)
-            .foregroundStyle(Color.white.opacity(0.62))
-            .help("Refresh")
+            RefreshButton(
+                isRefreshing: isRefreshing,
+                onRefresh: onRefresh
+            )
 
             Button(action: onLogin) {
                 Text(snapshot.account.isLoggedIn ? "Login" : "Login")
@@ -139,6 +136,53 @@ private struct AccountLine: View {
 
     private var accountDetail: String? {
         snapshot.account.email ?? snapshot.account.detail
+    }
+
+    private var statusColor: Color {
+        snapshot.account.isLoggedIn ? Color(red: 0.62, green: 0.80, blue: 1.0) : Color.white.opacity(0.36)
+    }
+
+    private var detailColor: Color {
+        snapshot.account.isLoggedIn ? Color(red: 0.62, green: 0.80, blue: 1.0).opacity(0.68) : Color.white.opacity(0.42)
+    }
+}
+
+private struct RefreshButton: View {
+    let isRefreshing: Bool
+    let onRefresh: () -> Void
+
+    @State private var rotationDegrees = 0.0
+
+    var body: some View {
+        Button(action: onRefresh) {
+            Image(systemName: isRefreshing ? "arrow.triangle.2.circlepath" : "arrow.clockwise")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(isRefreshing ? Color(red: 0.62, green: 0.80, blue: 1.0) : Color.white.opacity(0.62))
+                .rotationEffect(.degrees(rotationDegrees))
+                .frame(width: 22, height: 22)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help(isRefreshing ? "Refreshing" : "Refresh")
+        .onAppear {
+            updateAnimation(isRefreshing)
+        }
+        .onChange(of: isRefreshing) { refreshing in
+            updateAnimation(refreshing)
+        }
+    }
+
+    private func updateAnimation(_ refreshing: Bool) {
+        if refreshing {
+            rotationDegrees = 0
+            withAnimation(.linear(duration: 0.85).repeatForever(autoreverses: false)) {
+                rotationDegrees = 360
+            }
+        } else {
+            withAnimation(.easeOut(duration: 0.18)) {
+                rotationDegrees = 0
+            }
+        }
     }
 }
 
