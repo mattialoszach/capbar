@@ -2,9 +2,17 @@
 
 CapBar is a compact macOS menu bar app for tracking AI coding-agent usage limits at a glance.
 
+<p align="center">
+  <img src="docs/images/demo-1.png" width="600" alt="CapBar menu bar usage view">
+</p>
+
 It currently supports Codex and Claude Code. The menu bar item shows the selected provider's current-session and weekly remaining usage, and the popover gives a fuller view with account status, reset times, manual refresh, login actions, and provider switching.
 
 CapBar is intentionally small: it does not proxy requests, store usage history, or send telemetry. It reads the same local provider state that the CLIs already write on your Mac.
+
+<p align="center">
+  <img src="docs/images/demo-2.png" width="600" alt="CapBar provider popover view">
+</p>
 
 ## Features
 
