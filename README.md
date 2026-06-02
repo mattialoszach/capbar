@@ -1,5 +1,9 @@
 # CapBar
 
+<p align="center">
+  <img src="docs/images/capbar-logo.png" width="112" alt="CapBar app icon">
+</p>
+
 CapBar is a compact macOS menu bar app for tracking AI coding-agent usage limits at a glance.
 
 <p align="center">
@@ -103,6 +107,21 @@ claude --version
 
 ## Setup
 
+### Install From A Release
+
+For normal users, the easiest install path is a GitHub Release asset:
+
+1. Download `CapBar-macOS.zip` from the latest release.
+2. Unzip it.
+3. Move `CapBar.app` into `/Applications`.
+4. Open `CapBar.app`.
+
+CapBar is a menu bar accessory app, so it appears in the macOS menu bar rather than the Dock.
+
+If the release is not signed and notarized with an Apple Developer ID, macOS may block the first launch. In that case, right-click `CapBar.app`, choose `Open`, and confirm. For the smoothest public distribution, sign and notarize the app before publishing.
+
+### Build From Source
+
 Clone the repo:
 
 ```sh
@@ -131,11 +150,24 @@ This launches CapBar directly from Swift Package Manager. It appears in the macO
 
 ## Package As A macOS App
 
-Build a release app bundle:
+Build a release app bundle and zip archive:
 
 ```sh
 chmod +x scripts/package_app.sh
 scripts/package_app.sh
+```
+
+The package script creates:
+
+```text
+dist/CapBar.app
+dist/CapBar-macOS.zip
+```
+
+`dist/CapBar.app` includes the app icon generated from:
+
+```text
+docs/images/capbar-logo.png
 ```
 
 Open it:
@@ -152,10 +184,31 @@ scripts/package_app.sh
 open dist/CapBar.app
 ```
 
-The package script creates:
+### Optional Code Signing
+
+For a local or unsigned GitHub release, no signing identity is required. Users may need to right-click and choose `Open` the first time.
+
+If you have an Apple Developer ID certificate, pass it through `CODESIGN_IDENTITY`:
+
+```sh
+CODESIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" scripts/package_app.sh
+```
+
+For a polished public release, notarize the signed app/zip with Apple and staple the notarization ticket before uploading the final artifact.
+
+### Publish A GitHub Release
+
+1. Build the release artifact:
+
+```sh
+scripts/package_app.sh
+```
+
+2. Create a GitHub Release, for example `v0.1.0`.
+3. Upload this file as the downloadable macOS asset:
 
 ```text
-dist/CapBar.app
+dist/CapBar-macOS.zip
 ```
 
 The generated app has `LSUIElement` enabled, so it runs as a menu bar accessory and does not show a Dock icon.
@@ -328,4 +381,4 @@ Because this is a menu bar accessory app, use `pkill -x CapBar` when you need to
 
 ## License
 
-Add a license before publishing if you want others to reuse or redistribute the code.
+CapBar is released under the [MIT License](LICENSE).
