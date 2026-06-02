@@ -53,6 +53,15 @@ struct CodexUsageReader {
     private func metric(title: String, fallbackDetail: String, limit: CodexRateLimitWindow?, resetStyle: ResetStyle) -> LimitMetric? {
         guard let limit else { return nil }
         let resetDate = limit.resetsAt.map { Date(timeIntervalSince1970: TimeInterval($0)) }
+        if let resetDate, resetDate <= Date() {
+            return LimitMetric(
+                title: title,
+                detail: "Reset elapsed",
+                usedPercent: 0,
+                resetDate: nil
+            )
+        }
+
         let detail = resetDate.map { Formatters.resetDetail(for: $0, style: resetStyle) } ?? fallbackDetail
         return LimitMetric(
             title: title,
