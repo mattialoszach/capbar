@@ -12,7 +12,7 @@ final class StatusItemController {
 
     init(store: UsageStore) {
         self.store = store
-        statusItem = NSStatusBar.system.statusItem(withLength: 116)
+        statusItem = NSStatusBar.system.statusItem(withLength: 112)
         hostingView = NSHostingView(rootView: StatusBarLabel(snapshot: store.menuBarSnapshot))
 
         configureStatusButton()
@@ -35,8 +35,8 @@ final class StatusItemController {
         button.addSubview(hostingView)
 
         NSLayoutConstraint.activate([
-            hostingView.leadingAnchor.constraint(equalTo: button.leadingAnchor, constant: 5),
-            hostingView.trailingAnchor.constraint(equalTo: button.trailingAnchor, constant: -5),
+            hostingView.leadingAnchor.constraint(equalTo: button.leadingAnchor, constant: 2),
+            hostingView.trailingAnchor.constraint(equalTo: button.trailingAnchor, constant: -2),
             hostingView.centerYAnchor.constraint(equalTo: button.centerYAnchor),
             hostingView.heightAnchor.constraint(equalToConstant: 20)
         ])
@@ -44,7 +44,7 @@ final class StatusItemController {
 
     private func configurePopover() {
         popover.behavior = .transient
-        popover.contentSize = NSSize(width: 340, height: 260)
+        popover.contentSize = NSSize(width: 360, height: 280)
         popover.contentViewController = NSHostingController(rootView: PopoverView(store: store))
     }
 

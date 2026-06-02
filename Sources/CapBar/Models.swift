@@ -104,4 +104,24 @@ struct LimitMetric: Equatable {
         guard let usedPercent else { return "Unavailable" }
         return "\(Int(usedPercent.rounded()))% used"
     }
+
+    var remainingPercent: Double? {
+        guard let usedPercent else { return nil }
+        return max(0, min(100, 100 - usedPercent))
+    }
+
+    var fractionRemaining: Double {
+        guard let remainingPercent else { return 0 }
+        return min(1, max(0, remainingPercent / 100))
+    }
+
+    var remainingPercentText: String {
+        guard let remainingPercent else { return "--%" }
+        return "\(Int(remainingPercent.rounded()))%"
+    }
+
+    var remainingText: String {
+        guard let remainingPercent else { return "Unavailable" }
+        return "\(Int(remainingPercent.rounded()))% left"
+    }
 }

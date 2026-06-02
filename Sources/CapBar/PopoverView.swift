@@ -41,8 +41,8 @@ struct PopoverView: View {
                 .foregroundStyle(Color.white.opacity(0.48))
                 .lineLimit(1)
         }
-        .padding(16)
-        .frame(width: 340)
+        .padding(EdgeInsets(top: 16, leading: 16, bottom: 16, trailing: 16))
+        .frame(width: 360)
         .background(.ultraThinMaterial)
         .environment(\.colorScheme, .dark)
     }
@@ -72,8 +72,10 @@ struct PopoverView: View {
                 NSApplication.shared.terminate(nil)
             } label: {
                 Image(systemName: "xmark")
-                    .font(.system(size: 11, weight: .semibold))
+                    .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(Color.white.opacity(0.55))
+                    .frame(width: 22, height: 22)
+                    .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
             .help("Quit")
@@ -145,22 +147,25 @@ private struct LimitRow: View {
                 Text(metric?.title ?? "Usage limit")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.white)
+                    .lineLimit(1)
                 Text(metric?.detail ?? "Unavailable")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(Color.white.opacity(0.58))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.86)
             }
-            .frame(width: 130, alignment: .leading)
+            .frame(width: 154, alignment: .leading)
 
-            SimpleProgressBar(fraction: metric?.fractionUsed ?? 0)
+            SimpleProgressBar(fraction: metric?.fractionRemaining ?? 0)
                 .frame(height: 6)
 
-            Text(metric?.usedText ?? "Unavailable")
+            Text(metric?.remainingText ?? "Unavailable")
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(Color.white.opacity(metric?.usedPercent == nil ? 0.38 : 0.70))
                 .monospacedDigit()
-                .frame(width: 74, alignment: .trailing)
+                .frame(width: 70, alignment: .trailing)
                 .lineLimit(1)
-                .minimumScaleFactor(0.72)
+                .minimumScaleFactor(0.78)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 13)

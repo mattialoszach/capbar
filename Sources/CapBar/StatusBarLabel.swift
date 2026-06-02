@@ -4,23 +4,43 @@ struct StatusBarLabel: View {
     let snapshot: ProviderSnapshot
 
     var body: some View {
-        HStack(spacing: 6) {
-            ProviderLogoView(provider: snapshot.provider, size: 15)
+        HStack(spacing: 9) {
+            ProviderLogoView(provider: snapshot.provider, size: 16)
 
-            TinyProgressBar(fraction: snapshot.menuBarMetric?.fractionUsed ?? 0)
-                .frame(width: 48, height: 6)
-
-            Text(snapshot.menuBarMetric?.percentText ?? "--%")
-                .font(.system(size: 9, weight: .semibold, design: .rounded))
-                .monospacedDigit()
-                .foregroundStyle(.white.opacity(0.82))
-                .frame(width: 30, alignment: .trailing)
-                .lineLimit(1)
-                .minimumScaleFactor(0.8)
+            VStack(spacing: 3) {
+                StatusLimitStrip(symbol: "clock", metric: snapshot.current)
+                StatusLimitStrip(symbol: "calendar", metric: snapshot.weekly)
+            }
         }
-        .frame(width: 105, height: 20)
+        .frame(width: 104, height: 22)
         .contentShape(Rectangle())
-        .accessibilityLabel("\(snapshot.provider.displayName) \(snapshot.menuBarMetric?.usedText ?? "limit unavailable")")
+        .accessibilityLabel("\(snapshot.provider.displayName) usage limits")
+    }
+}
+
+private struct StatusLimitStrip: View {
+    let symbol: String
+    let metric: LimitMetric?
+
+    var body: some View {
+        HStack(spacing: 3) {
+            Image(systemName: symbol)
+                .font(.system(size: 7, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.72))
+                .frame(width: 8)
+
+            TinyProgressBar(fraction: metric?.fractionRemaining ?? 0)
+                .frame(width: 38, height: 5)
+
+            Text(metric?.remainingPercentText ?? "--%")
+                .font(.system(size: 8, weight: .semibold, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(.white.opacity(0.84))
+                .frame(width: 22, alignment: .trailing)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+        }
+        .frame(height: 8)
     }
 }
 

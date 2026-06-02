@@ -53,9 +53,7 @@ enum Formatters {
             return "Resets in \(minutes) min"
         case .calendar:
             let formatter = DateFormatter()
-            formatter.doesRelativeDateFormatting = true
-            formatter.dateStyle = .medium
-            formatter.timeStyle = .short
+            formatter.dateFormat = "MMM d, h:mm a"
             return "Resets \(formatter.string(from: date))"
         }
     }
