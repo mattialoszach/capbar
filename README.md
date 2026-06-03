@@ -10,7 +10,7 @@ CapBar is a compact macOS menu bar app for tracking AI coding-agent usage limits
   <img src="docs/images/demo-1.png" width="600" alt="CapBar menu bar usage view">
 </p>
 
-It currently supports Codex and Claude Code. The menu bar item shows the selected provider's current-session and weekly remaining usage, and the popover gives a fuller view with account status, reset times, manual refresh, login actions, and provider switching.
+It currently supports Codex and Claude Code. The menu bar item shows the selected provider's current-session and weekly remaining usage, and the popover gives a fuller view with account status, reset times, manual refresh, login actions, provider switching, and lightweight settings.
 
 CapBar is intentionally small: it does not proxy requests, store usage history, or send telemetry. It reads the same local provider state that the CLIs already write on your Mac.
 
@@ -21,7 +21,7 @@ CapBar is intentionally small: it does not proxy requests, store usage history, 
 ## Features
 
 - macOS menu bar accessory app with no Dock icon.
-- Codex and Claude Code provider tabs.
+- Codex and Claude Code provider selector.
 - Compact menu bar display with:
   - provider icon
   - current-session remaining percentage
@@ -33,9 +33,11 @@ CapBar is intentionally small: it does not proxy requests, store usage history, 
   - reset text and reset date where available
   - manual refresh button
   - CLI login button
+  - settings panel
   - quit button
-- Auto-refresh every 60 seconds.
-- Remembers the selected menu bar provider in `UserDefaults`.
+- Configurable auto-refresh: manual, 30 seconds, 1 minute, 5 minutes, or 15 minutes.
+- Optional low-usage warning colors for remaining limits.
+- Remembers the selected menu bar provider, refresh interval, and low-usage color preference in `UserDefaults`.
 - Local-only credential and session reading.
 
 ## Supported Providers
@@ -204,7 +206,7 @@ For a polished public release, notarize the signed app/zip with Apple and staple
 scripts/package_app.sh
 ```
 
-2. Create a GitHub Release, for example `v0.1.0`.
+2. Create a GitHub Release, for example `v0.2.0`.
 3. Upload this file as the downloadable macOS asset:
 
 ```text
@@ -217,10 +219,13 @@ The generated app has `LSUIElement` enabled, so it runs as a menu bar accessory 
 
 1. Open `dist/CapBar.app` or run `swift run CapBar`.
 2. Click the CapBar item in the macOS menu bar.
-3. Choose `Codex` or `Claude` in the segmented control.
+3. Choose `Codex` or `Claude` in the provider selector.
 4. Use the refresh button to update immediately.
 5. Use the login button to open the provider's CLI login flow in Terminal.
-6. Click `X` to fully quit the app.
+6. Click the gear button to open settings.
+7. Choose an auto-refresh interval, or set auto-refresh to `Manual`.
+8. Toggle low-usage colors on or off.
+9. Click `X` to fully quit the app.
 
 The selected provider controls what appears in the menu bar. The popover always lets you switch between supported providers.
 
@@ -235,16 +240,33 @@ The menu bar label is intentionally dense:
 
 If a metric is unavailable, CapBar shows `--%`.
 
-## Refresh Behavior
+## Settings And Refresh
 
-CapBar refreshes automatically every 60 seconds.
+CapBar refreshes automatically based on the selected interval. The default is `1 min`.
+
+Available intervals:
+
+- `Manual`
+- `30 sec`
+- `1 min`
+- `5 min`
+- `15 min`
+
+Set auto-refresh to `Manual` to disable the timer.
 
 Manual refresh uses the same refresh path and updates both:
 
 - the menu bar display
 - the popover rows
 
+If a refresh is already running, CapBar skips overlapping refresh requests.
+
 Provider reads run off the main actor so the UI does not block while local commands or network calls are running.
+
+Low-usage colors can be toggled from settings. When enabled, remaining usage changes color when a limit is low:
+
+- warning at 30% remaining or less
+- danger at 15% remaining or less
 
 ## Privacy And Security
 
@@ -278,7 +300,8 @@ Codex reads may access:
 - Claude may temporarily return overload or rate-limit errors. In that case CapBar shows `OAuth usage unavailable`.
 - Codex usage depends on the latest local `rate_limits` event written by Codex.
 - CapBar currently displays two windows per provider: current session and weekly.
-- No usage history, charts, notifications, or settings screen are implemented yet.
+- Settings currently cover auto-refresh and low-usage colors.
+- No usage history, charts, or notifications are implemented yet.
 
 ## Troubleshooting
 
@@ -345,7 +368,7 @@ Sources/CapBar/
   PopoverView.swift            Main SwiftUI popover UI
   StatusBarLabel.swift         Compact menu bar label
   Models.swift                 Provider and usage models
-  UsageStore.swift             Shared refresh state and auto-refresh timer
+  UsageStore.swift             Shared settings, refresh state, and auto-refresh timer
   CodexUsageReader.swift       Codex local session reader
   ClaudeUsageReader.swift      Claude CLI/OAuth reader
   ProviderLoginRunner.swift    Terminal login launcher
