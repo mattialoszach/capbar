@@ -13,11 +13,7 @@ final class UsageStore: ObservableObject {
     init() {
         settings = Self.loadSettings(key: userDefaultsKey)
         refresh()
-        timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                self?.refresh()
-            }
-        }
+        configureRefreshTimer()
     }
 
     var menuBarSnapshot: ProviderSnapshot {
@@ -29,6 +25,8 @@ final class UsageStore: ObservableObject {
     }
 
     func refresh() {
+        guard !isRefreshing else { return }
+
         isRefreshing = true
         lastError = nil
 
@@ -49,8 +47,34 @@ final class UsageStore: ObservableObject {
         persistSettings()
     }
 
+    func setRefreshInterval(_ interval: RefreshInterval) {
+        settings.refreshInterval = interval
+        persistSettings()
+        configureRefreshTimer()
+    }
+
+    func setLowUsageColorsEnabled(_ isEnabled: Bool) {
+        settings.lowUsageColorsEnabled = isEnabled
+        persistSettings()
+    }
+
     func runCLILogin(for provider: ProviderID) {
         ProviderLoginRunner.runCLILogin(for: provider)
+    }
+
+    private func configureRefreshTimer() {
+        timer?.invalidate()
+
+        guard let interval = settings.refreshInterval.timeInterval else {
+            timer = nil
+            return
+        }
+
+        timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.refresh()
+            }
+        }
     }
 
     private func persistSettings() {

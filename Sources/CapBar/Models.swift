@@ -38,8 +38,57 @@ enum ProviderID: String, CaseIterable, Codable, Identifiable, Sendable {
 
 struct UsageSettings: Codable, Equatable {
     var menuBarProvider: ProviderID
+    var refreshInterval: RefreshInterval
+    var lowUsageColorsEnabled: Bool
 
     static let `default` = UsageSettings(menuBarProvider: .codex)
+
+    init(
+        menuBarProvider: ProviderID,
+        refreshInterval: RefreshInterval = .oneMinute,
+        lowUsageColorsEnabled: Bool = true
+    ) {
+        self.menuBarProvider = menuBarProvider
+        self.refreshInterval = refreshInterval
+        self.lowUsageColorsEnabled = lowUsageColorsEnabled
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case menuBarProvider
+        case refreshInterval
+        case lowUsageColorsEnabled
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        menuBarProvider = try container.decodeIfPresent(ProviderID.self, forKey: .menuBarProvider) ?? .codex
+        refreshInterval = try container.decodeIfPresent(RefreshInterval.self, forKey: .refreshInterval) ?? .oneMinute
+        lowUsageColorsEnabled = try container.decodeIfPresent(Bool.self, forKey: .lowUsageColorsEnabled) ?? true
+    }
+}
+
+enum RefreshInterval: Int, CaseIterable, Codable, Identifiable, Sendable {
+    case manual = 0
+    case thirtySeconds = 30
+    case oneMinute = 60
+    case fiveMinutes = 300
+    case fifteenMinutes = 900
+
+    var id: Int { rawValue }
+
+    var timeInterval: TimeInterval? {
+        rawValue == 0 ? nil : TimeInterval(rawValue)
+    }
+
+    var title: String {
+        switch self {
+        case .manual: "Manual"
+        case .thirtySeconds: "30 sec"
+        case .oneMinute: "1 min"
+        case .fiveMinutes: "5 min"
+        case .fifteenMinutes: "15 min"
+        }
+    }
 }
 
 struct ProviderAccount: Equatable {
