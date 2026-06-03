@@ -7,12 +7,12 @@ struct StatusBarLabel: View {
         HStack(spacing: 9) {
             ProviderLogoView(provider: snapshot.provider, size: 16)
 
-            VStack(spacing: 3) {
+            VStack(spacing: 2) {
                 StatusLimitStrip(symbol: "clock", metric: snapshot.current)
                 StatusLimitStrip(symbol: "calendar", metric: snapshot.weekly)
             }
         }
-        .frame(width: 104, height: 22)
+        .frame(width: 100, height: 22)
         .contentShape(Rectangle())
         .accessibilityLabel("\(snapshot.provider.displayName) usage limits")
     }
@@ -23,24 +23,26 @@ private struct StatusLimitStrip: View {
     let metric: LimitMetric?
 
     var body: some View {
-        HStack(spacing: 3) {
+        HStack(spacing: 0) {
             Image(systemName: symbol)
                 .font(.system(size: 7, weight: .semibold))
                 .foregroundStyle(.white.opacity(0.72))
                 .frame(width: 8)
 
             TinyProgressBar(fraction: metric?.fractionRemaining ?? 0)
-                .frame(width: 38, height: 5)
+                .frame(width: 34, height: 5)
+                .padding(.leading, 3)
 
             Text(metric?.remainingPercentText ?? "--%")
-                .font(.system(size: 8, weight: .semibold, design: .rounded))
+                .font(.system(size: 9, weight: .semibold, design: .rounded))
                 .monospacedDigit()
                 .foregroundStyle(.white.opacity(0.84))
-                .frame(width: 22, alignment: .trailing)
+                .padding(.leading, 5)
+                .frame(width: 26, alignment: .leading)
                 .lineLimit(1)
                 .minimumScaleFactor(0.75)
         }
-        .frame(height: 8)
+        .frame(height: 9)
     }
 }
 

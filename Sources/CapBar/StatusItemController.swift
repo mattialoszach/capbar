@@ -12,7 +12,7 @@ final class StatusItemController {
 
     init(store: UsageStore) {
         self.store = store
-        statusItem = NSStatusBar.system.statusItem(withLength: 112)
+        statusItem = NSStatusBar.system.statusItem(withLength: 108)
         hostingView = NSHostingView(rootView: StatusBarLabel(snapshot: store.menuBarSnapshot))
 
         configureStatusButton()
