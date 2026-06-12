@@ -10,7 +10,7 @@ APP_DIR="$DIST_DIR/$APP_NAME.app"
 CONTENTS_DIR="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
 RESOURCES_DIR="$CONTENTS_DIR/Resources"
-ICON_SOURCE="$ROOT_DIR/docs/images/capbar-logo.png"
+ICON_SOURCE="$ROOT_DIR/docs/images/capbar-icon.png"
 ICONSET_DIR="$DIST_DIR/$APP_NAME.iconset"
 ZIP_PATH="$DIST_DIR/$APP_NAME-macOS.zip"
 

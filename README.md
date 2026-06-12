@@ -1,7 +1,7 @@
 # CapBar
 
 <p align="center">
-  <img src="docs/images/capbar-logo.png" width="112" alt="CapBar app icon">
+  <img src="docs/images/capbar-icon.png" width="112" alt="CapBar app icon">
 </p>
 
 CapBar is a compact macOS menu bar app for tracking AI coding-agent usage limits at a glance.
@@ -175,7 +175,7 @@ dist/CapBar-macOS.zip
 `dist/CapBar.app` includes the app icon generated from:
 
 ```text
-docs/images/capbar-logo.png
+docs/images/capbar-icon.png
 ```
 
 Open it:
