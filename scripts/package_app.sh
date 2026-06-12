@@ -5,6 +5,7 @@ ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 DIST_DIR="$ROOT_DIR/dist"
 APP_NAME="CapBar"
 APP_VERSION="0.2.0"
+BUNDLE_IDENTIFIER="dev.capbar.CapBar"
 APP_DIR="$DIST_DIR/$APP_NAME.app"
 CONTENTS_DIR="$APP_DIR/Contents"
 MACOS_DIR="$CONTENTS_DIR/MacOS"
@@ -13,7 +14,40 @@ ICON_SOURCE="$ROOT_DIR/docs/images/capbar-logo.png"
 ICONSET_DIR="$DIST_DIR/$APP_NAME.iconset"
 ZIP_PATH="$DIST_DIR/$APP_NAME-macOS.zip"
 
+create_zip() {
+  rm -f "$ZIP_PATH"
+  ditto -c -k --norsrc --keepParent "$APP_DIR" "$ZIP_PATH"
+}
+
+notarize_zip() {
+  local notary_args=()
+
+  if [[ -n "${NOTARY_KEYCHAIN_PROFILE:-}" ]]; then
+    notary_args=(--keychain-profile "$NOTARY_KEYCHAIN_PROFILE")
+  elif [[ -n "${APPLE_ID:-}" && -n "${APPLE_TEAM_ID:-}" && -n "${APPLE_APP_SPECIFIC_PASSWORD:-}" ]]; then
+    notary_args=(
+      --apple-id "$APPLE_ID"
+      --team-id "$APPLE_TEAM_ID"
+      --password "$APPLE_APP_SPECIFIC_PASSWORD"
+    )
+  else
+    echo "error: NOTARIZE=1 requires NOTARY_KEYCHAIN_PROFILE or APPLE_ID, APPLE_TEAM_ID, and APPLE_APP_SPECIFIC_PASSWORD" >&2
+    exit 1
+  fi
+
+  xcrun notarytool submit "$ZIP_PATH" "${notary_args[@]}" --wait
+  xcrun stapler staple "$APP_DIR"
+  xcrun stapler validate "$APP_DIR"
+  create_zip
+}
+
 cd "$ROOT_DIR"
+
+if [[ "${NOTARIZE:-0}" == "1" && -z "${CODESIGN_IDENTITY:-}" ]]; then
+  echo "error: NOTARIZE=1 requires a Developer ID Application signing identity in CODESIGN_IDENTITY" >&2
+  exit 1
+fi
+
 swift build -c release
 
 rm -rf "$APP_DIR" "$ICONSET_DIR" "$ZIP_PATH"
@@ -53,7 +87,7 @@ cat > "$CONTENTS_DIR/Info.plist" <<PLIST
     <key>CFBundleDisplayName</key>
     <string>CapBar</string>
     <key>CFBundleIdentifier</key>
-    <string>dev.capbar.CapBar</string>
+    <string>$BUNDLE_IDENTIFIER</string>
     <key>CFBundleIconFile</key>
     <string>CapBar</string>
     <key>CFBundleName</key>
@@ -76,9 +110,21 @@ PLIST
 
 if [[ -n "${CODESIGN_IDENTITY:-}" ]]; then
   codesign --force --deep --options runtime --timestamp --sign "$CODESIGN_IDENTITY" "$APP_DIR"
+else
+  echo "warning: CODESIGN_IDENTITY not set; using an ad-hoc signature for local testing only" >&2
+  codesign --force --deep --sign - "$APP_DIR"
 fi
 
-ditto -c -k --norsrc --keepParent "$APP_DIR" "$ZIP_PATH"
+codesign --verify --deep --strict --verbose=2 "$APP_DIR"
+
+create_zip
+
+if [[ "${NOTARIZE:-0}" == "1" ]]; then
+  notarize_zip
+  spctl -a -vvv -t exec "$APP_DIR"
+elif [[ -n "${CODESIGN_IDENTITY:-}" ]]; then
+  echo "warning: signed but not notarized; set NOTARIZE=1 before publishing a public GitHub release" >&2
+fi
 
 echo "$APP_DIR"
 echo "$ZIP_PATH"

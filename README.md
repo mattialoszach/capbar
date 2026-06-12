@@ -188,7 +188,7 @@ open dist/CapBar.app
 
 ### Optional Code Signing
 
-For a local or unsigned GitHub release, no signing identity is required. Users may need to right-click and choose `Open` the first time.
+The package script always signs the app bundle before zipping it. If no signing identity is provided, it uses an ad-hoc signature that is suitable for local testing only. Do not publish an ad-hoc signed zip as a public GitHub Release asset.
 
 If you have an Apple Developer ID certificate, pass it through `CODESIGN_IDENTITY`:
 
@@ -196,13 +196,36 @@ If you have an Apple Developer ID certificate, pass it through `CODESIGN_IDENTIT
 CODESIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" scripts/package_app.sh
 ```
 
-For a polished public release, notarize the signed app/zip with Apple and staple the notarization ticket before uploading the final artifact.
+For a public GitHub release, build a Developer ID signed and notarized zip. Use either a notarytool keychain profile:
+
+```sh
+CODESIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" \
+NOTARIZE=1 \
+NOTARY_KEYCHAIN_PROFILE="notarytool-profile-name" \
+scripts/package_app.sh
+```
+
+Or use Apple ID credentials:
+
+```sh
+CODESIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" \
+NOTARIZE=1 \
+APPLE_ID="you@example.com" \
+APPLE_TEAM_ID="TEAMID" \
+APPLE_APP_SPECIFIC_PASSWORD="xxxx-xxxx-xxxx-xxxx" \
+scripts/package_app.sh
+```
+
+The notarized build staples the ticket to `dist/CapBar.app`, recreates `dist/CapBar-macOS.zip`, and verifies the result with Gatekeeper before printing the artifact paths.
 
 ### Publish A GitHub Release
 
-1. Build the release artifact:
+1. Build the notarized release artifact:
 
 ```sh
+CODESIGN_IDENTITY="Developer ID Application: Your Name (TEAMID)" \
+NOTARIZE=1 \
+NOTARY_KEYCHAIN_PROFILE="notarytool-profile-name" \
 scripts/package_app.sh
 ```
 

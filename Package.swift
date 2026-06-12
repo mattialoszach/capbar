@@ -16,6 +16,10 @@ let package = Package(
             resources: [
                 .process("Resources")
             ]
+        ),
+        .testTarget(
+            name: "CapBarTests",
+            dependencies: ["CapBar"]
         )
     ]
 )

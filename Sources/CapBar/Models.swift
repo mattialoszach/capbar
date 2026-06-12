@@ -34,10 +34,17 @@ enum ProviderID: String, CaseIterable, Codable, Identifiable, Sendable {
         case .claude: "claude"
         }
     }
+
+    var next: ProviderID {
+        let providers = Self.allCases
+        guard let currentIndex = providers.firstIndex(of: self) else { return self }
+        return providers[(currentIndex + 1) % providers.count]
+    }
 }
 
 struct UsageSettings: Codable, Equatable {
     var menuBarProvider: ProviderID
+    var providerRotationInterval: ProviderRotationInterval
     var refreshInterval: RefreshInterval
     var lowUsageColorsEnabled: Bool
 
@@ -45,16 +52,19 @@ struct UsageSettings: Codable, Equatable {
 
     init(
         menuBarProvider: ProviderID,
+        providerRotationInterval: ProviderRotationInterval = .off,
         refreshInterval: RefreshInterval = .oneMinute,
         lowUsageColorsEnabled: Bool = true
     ) {
         self.menuBarProvider = menuBarProvider
+        self.providerRotationInterval = providerRotationInterval
         self.refreshInterval = refreshInterval
         self.lowUsageColorsEnabled = lowUsageColorsEnabled
     }
 
     private enum CodingKeys: String, CodingKey {
         case menuBarProvider
+        case providerRotationInterval
         case refreshInterval
         case lowUsageColorsEnabled
     }
@@ -62,8 +72,29 @@ struct UsageSettings: Codable, Equatable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         menuBarProvider = try container.decodeIfPresent(ProviderID.self, forKey: .menuBarProvider) ?? .codex
+        providerRotationInterval = try container.decodeIfPresent(ProviderRotationInterval.self, forKey: .providerRotationInterval) ?? .off
         refreshInterval = try container.decodeIfPresent(RefreshInterval.self, forKey: .refreshInterval) ?? .oneMinute
         lowUsageColorsEnabled = try container.decodeIfPresent(Bool.self, forKey: .lowUsageColorsEnabled) ?? true
+    }
+}
+
+enum ProviderRotationInterval: Int, CaseIterable, Codable, Identifiable, Sendable {
+    case off = 0
+    case fiveSeconds = 5
+    case tenSeconds = 10
+
+    var id: Int { rawValue }
+
+    var timeInterval: TimeInterval? {
+        rawValue == 0 ? nil : TimeInterval(rawValue)
+    }
+
+    var title: String {
+        switch self {
+        case .off: "Off"
+        case .fiveSeconds: "5 sec"
+        case .tenSeconds: "10 sec"
+        }
     }
 }
 

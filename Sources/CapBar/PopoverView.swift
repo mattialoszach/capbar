@@ -73,7 +73,13 @@ struct PopoverView: View {
         settingsHeader
 
         VStack(spacing: 0) {
-            SettingsPickerRow(selection: refreshIntervalBinding)
+            ProviderRotationPickerRow(selection: providerRotationIntervalBinding)
+
+            Divider()
+                .overlay(Color.white.opacity(0.08))
+                .padding(.leading, 40)
+
+            RefreshIntervalPickerRow(selection: refreshIntervalBinding)
 
             Divider()
                 .overlay(Color.white.opacity(0.08))
@@ -194,6 +200,13 @@ struct PopoverView: View {
         )
     }
 
+    private var providerRotationIntervalBinding: Binding<ProviderRotationInterval> {
+        Binding(
+            get: { store.settings.providerRotationInterval },
+            set: { store.setProviderRotationInterval($0) }
+        )
+    }
+
     private var lowUsageColorsBinding: Binding<Bool> {
         Binding(
             get: { store.settings.lowUsageColorsEnabled },
@@ -267,7 +280,35 @@ private extension ProviderID {
     }
 }
 
-private struct SettingsPickerRow: View {
+private struct ProviderRotationPickerRow: View {
+    @Binding var selection: ProviderRotationInterval
+
+    var body: some View {
+        HStack(spacing: 10) {
+            SettingsIcon(systemName: "arrow.triangle.2.circlepath")
+
+            Text("Rotate provider")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(.white)
+
+            Spacer()
+
+            Picker("", selection: $selection) {
+                ForEach(ProviderRotationInterval.allCases) { interval in
+                    Text(interval.title).tag(interval)
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .controlSize(.small)
+            .frame(width: 96)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 12)
+    }
+}
+
+private struct RefreshIntervalPickerRow: View {
     @Binding var selection: RefreshInterval
 
     var body: some View {

@@ -47,6 +47,15 @@ final class UsageStore: ObservableObject {
         persistSettings()
     }
 
+    func rotateMenuBarProvider() {
+        setMenuBarProvider(settings.menuBarProvider.next)
+    }
+
+    func setProviderRotationInterval(_ interval: ProviderRotationInterval) {
+        settings.providerRotationInterval = interval
+        persistSettings()
+    }
+
     func setRefreshInterval(_ interval: RefreshInterval) {
         settings.refreshInterval = interval
         persistSettings()

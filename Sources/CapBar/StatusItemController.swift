@@ -3,17 +3,19 @@ import Combine
 import SwiftUI
 
 @MainActor
-final class StatusItemController {
+final class StatusItemController: NSObject, NSPopoverDelegate {
     private let store: UsageStore
     private let statusItem: NSStatusItem
     private let popover = NSPopover()
     private let hostingView: NSHostingView<StatusBarLabel>
     private var cancellables = Set<AnyCancellable>()
+    private var providerRotationTimer: Timer?
 
     init(store: UsageStore) {
         self.store = store
         statusItem = NSStatusBar.system.statusItem(withLength: 108)
         hostingView = NSHostingView(rootView: StatusBarLabel(snapshot: store.menuBarSnapshot))
+        super.init()
 
         configureStatusButton()
         configurePopover()
@@ -44,6 +46,7 @@ final class StatusItemController {
 
     private func configurePopover() {
         popover.behavior = .transient
+        popover.delegate = self
         popover.contentSize = NSSize(width: 360, height: 300)
         popover.contentViewController = NSHostingController(rootView: PopoverView(store: store))
     }
@@ -56,6 +59,15 @@ final class StatusItemController {
                 self?.hostingView.rootView = StatusBarLabel(snapshot: self?.store.menuBarSnapshot ?? .loading(provider: .codex))
             }
             .store(in: &cancellables)
+
+        store.$settings
+            .map(\.providerRotationInterval)
+            .removeDuplicates()
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.configureProviderRotationTimer()
+            }
+            .store(in: &cancellables)
     }
 
     @objc private func togglePopover() {
@@ -64,8 +76,34 @@ final class StatusItemController {
         if popover.isShown {
             popover.performClose(nil)
         } else {
+            pauseProviderRotation()
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             popover.contentViewController?.view.window?.makeKey()
         }
+    }
+
+    func popoverDidClose(_ notification: Notification) {
+        configureProviderRotationTimer()
+    }
+
+    private func configureProviderRotationTimer() {
+        pauseProviderRotation()
+
+        guard !popover.isShown,
+              let interval = store.settings.providerRotationInterval.timeInterval,
+              ProviderID.allCases.count > 1 else {
+            return
+        }
+
+        providerRotationTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.store.rotateMenuBarProvider()
+            }
+        }
+    }
+
+    private func pauseProviderRotation() {
+        providerRotationTimer?.invalidate()
+        providerRotationTimer = nil
     }
 }
