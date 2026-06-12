@@ -91,7 +91,13 @@ It maps:
 - `seven_day` to `Weekly limit`
 - `extra_usage` is decoded for future use but is not displayed yet
 
-Claude usage is best-effort. Anthropic's OAuth usage endpoint and Claude Code credential locations are not public stable contracts, so this can break if Claude Code changes its local storage or API behavior.
+CapBar calls the OAuth usage endpoint at most once every five minutes. It caches the latest successful response locally for up to 24 hours and uses exponential backoff when Anthropic returns HTTP `429`, so a temporary throttle does not replace valid values with `Unavailable`. The cache is stored at:
+
+```text
+~/Library/Caches/CapBar/claude-usage.json
+```
+
+The cache contains usage values, reset timestamps, and a one-way token fingerprint. It does not contain the OAuth token. Claude usage remains best-effort because Anthropic's OAuth usage endpoint and Claude Code credential locations are not public stable contracts.
 
 ## Requirements
 
@@ -320,7 +326,7 @@ Codex reads may access:
 
 - CapBar is not affiliated with OpenAI or Anthropic.
 - Claude usage support depends on an undocumented/best-effort OAuth usage endpoint.
-- Claude may temporarily return overload or rate-limit errors. In that case CapBar shows `OAuth usage unavailable`.
+- Claude may temporarily return overload or rate-limit errors. CapBar keeps the latest successful values while backing off, provided that cache is no more than 24 hours old.
 - Codex usage depends on the latest local `rate_limits` event written by Codex.
 - CapBar currently displays two windows per provider: current session and weekly.
 - Settings currently cover auto-refresh and low-usage colors.
