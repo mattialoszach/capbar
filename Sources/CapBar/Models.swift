@@ -82,6 +82,8 @@ enum ProviderRotationInterval: Int, CaseIterable, Codable, Identifiable, Sendabl
     case off = 0
     case fiveSeconds = 5
     case tenSeconds = 10
+    case twentySeconds = 20
+    case thirtySeconds = 30
 
     var id: Int { rawValue }
 
@@ -94,6 +96,8 @@ enum ProviderRotationInterval: Int, CaseIterable, Codable, Identifiable, Sendabl
         case .off: "Off"
         case .fiveSeconds: "5 sec"
         case .tenSeconds: "10 sec"
+        case .twentySeconds: "20 sec"
+        case .thirtySeconds: "30 sec"
         }
     }
 }

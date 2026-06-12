@@ -16,6 +16,8 @@ final class ModelsTests: XCTestCase {
         XCTAssertNil(ProviderRotationInterval.off.timeInterval)
         XCTAssertEqual(ProviderRotationInterval.fiveSeconds.timeInterval, 5)
         XCTAssertEqual(ProviderRotationInterval.tenSeconds.timeInterval, 10)
+        XCTAssertEqual(ProviderRotationInterval.twentySeconds.timeInterval, 20)
+        XCTAssertEqual(ProviderRotationInterval.thirtySeconds.timeInterval, 30)
     }
 
     func testNextProviderCyclesThroughAllProviders() {

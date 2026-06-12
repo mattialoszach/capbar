@@ -18,6 +18,81 @@ CapBar is intentionally small: it does not proxy requests, store usage history, 
   <img src="docs/images/demo-2.png" width="600" alt="CapBar provider popover view">
 </p>
 
+## Installation
+
+### Option 1: Download The App
+
+This is the easiest option for most users.
+
+1. Open the [latest CapBar release](https://github.com/mattialoszach/capbar/releases/latest).
+2. Download `CapBar-macOS.zip`.
+3. Double-click the downloaded zip to extract `CapBar.app`.
+4. Open Finder and drag `CapBar.app` into the `Applications` folder.
+5. Open `Applications`, then open `CapBar`.
+
+CapBar runs in the macOS menu bar and does not appear in the Dock. Look for the CapBar icon near the top-right corner of the screen.
+
+If macOS blocks the first launch, right-click `CapBar.app`, choose `Open`, and confirm. You can also allow it from `System Settings > Privacy & Security` if macOS shows an `Open Anyway` button.
+
+### Set Up A Provider
+
+CapBar reads account and usage information written by the provider CLIs. Install and log in to at least one provider before using CapBar:
+
+```sh
+codex login
+claude auth login
+```
+
+Run each CLI you want to track at least once after logging in. CapBar does not install Codex or Claude Code for you.
+
+### Option 2: Build And Install From Source
+
+Building from source requires:
+
+- macOS 13 or newer
+- Git
+- Xcode Command Line Tools with Swift 6
+- Codex CLI and/or Claude Code CLI for the providers you want to track
+
+Install Apple's command-line tools if needed:
+
+```sh
+xcode-select --install
+```
+
+Clone and package CapBar:
+
+```sh
+git clone https://github.com/mattialoszach/capbar.git
+cd capbar
+chmod +x scripts/package_app.sh
+scripts/package_app.sh
+```
+
+The script creates the application here:
+
+```text
+dist/CapBar.app
+```
+
+Open the build folder in Finder:
+
+```sh
+open dist
+```
+
+Then drag `CapBar.app` from the `dist` folder into your `Applications` folder. Open CapBar from `Applications` after the copy finishes.
+
+To rebuild an installed copy later, quit CapBar, run the package script again, and replace the existing app in `Applications` with the new `dist/CapBar.app`.
+
+### Run Without Installing
+
+For development, launch CapBar directly from the repository:
+
+```sh
+swift run CapBar
+```
+
 ## Features
 
 - macOS menu bar accessory app with no Dock icon.
@@ -36,8 +111,9 @@ CapBar is intentionally small: it does not proxy requests, store usage history, 
   - settings panel
   - quit button
 - Configurable auto-refresh: manual, 30 seconds, 1 minute, 5 minutes, or 15 minutes.
+- Optional provider rotation: off, 5 seconds, 10 seconds, 20 seconds, or 30 seconds.
 - Optional low-usage warning colors for remaining limits.
-- Remembers the selected menu bar provider, refresh interval, and low-usage color preference in `UserDefaults`.
+- Remembers the selected provider, rotation interval, refresh interval, and low-usage color preference in `UserDefaults`.
 - Local-only credential and session reading.
 
 ## Supported Providers
@@ -99,66 +175,9 @@ CapBar calls the OAuth usage endpoint at most once every five minutes. It caches
 
 The cache contains usage values, reset timestamps, and a one-way token fingerprint. It does not contain the OAuth token. Claude usage remains best-effort because Anthropic's OAuth usage endpoint and Claude Code credential locations are not public stable contracts.
 
-## Requirements
+## Release Packaging
 
-- macOS 13 or newer.
-- Swift 6 toolchain.
-- Codex CLI installed if you want Codex usage.
-- Claude Code CLI installed if you want Claude usage.
-
-Check the CLIs:
-
-```sh
-codex --version
-claude --version
-```
-
-## Setup
-
-### Install From A Release
-
-For normal users, the easiest install path is a GitHub Release asset:
-
-1. Download `CapBar-macOS.zip` from the latest release.
-2. Unzip it.
-3. Move `CapBar.app` into `/Applications`.
-4. Open `CapBar.app`.
-
-CapBar is a menu bar accessory app, so it appears in the macOS menu bar rather than the Dock.
-
-If the release is not signed and notarized with an Apple Developer ID, macOS may block the first launch. In that case, right-click `CapBar.app`, choose `Open`, and confirm. For the smoothest public distribution, sign and notarize the app before publishing.
-
-### Build From Source
-
-Clone the repo:
-
-```sh
-git clone https://github.com/mattialoszach/capbar.git
-cd capbar
-```
-
-Log in to the providers you want to track:
-
-```sh
-codex login
-claude auth login
-```
-
-Run each CLI at least once after logging in. CapBar depends on local provider state that is written by the CLIs during normal use.
-
-## Run In Development
-
-From the repo root:
-
-```sh
-swift run CapBar
-```
-
-This launches CapBar directly from Swift Package Manager. It appears in the macOS menu bar, not in the Dock.
-
-## Package As A macOS App
-
-Build a release app bundle and zip archive:
+The same package script used for a source install also creates a zip archive suitable for distribution:
 
 ```sh
 chmod +x scripts/package_app.sh
@@ -176,20 +195,6 @@ dist/CapBar-macOS.zip
 
 ```text
 docs/images/capbar-icon.png
-```
-
-Open it:
-
-```sh
-open dist/CapBar.app
-```
-
-Restart after rebuilding:
-
-```sh
-pkill -x CapBar
-scripts/package_app.sh
-open dist/CapBar.app
 ```
 
 ### Optional Code Signing
@@ -246,15 +251,16 @@ The generated app has `LSUIElement` enabled, so it runs as a menu bar accessory 
 
 ## How To Use
 
-1. Open `dist/CapBar.app` or run `swift run CapBar`.
+1. Open `CapBar` from the `Applications` folder.
 2. Click the CapBar item in the macOS menu bar.
 3. Choose `Codex` or `Claude` in the provider selector.
 4. Use the refresh button to update immediately.
 5. Use the login button to open the provider's CLI login flow in Terminal.
 6. Click the gear button to open settings.
-7. Choose an auto-refresh interval, or set auto-refresh to `Manual`.
-8. Toggle low-usage colors on or off.
-9. Click `X` to fully quit the app.
+7. Choose a provider rotation interval, or leave rotation set to `Off`.
+8. Choose an auto-refresh interval, or set auto-refresh to `Manual`.
+9. Toggle low-usage colors on or off.
+10. Click `X` to fully quit the app.
 
 The selected provider controls what appears in the menu bar. The popover always lets you switch between supported providers.
 
@@ -270,6 +276,16 @@ The menu bar label is intentionally dense:
 If a metric is unavailable, CapBar shows `--%`.
 
 ## Settings And Refresh
+
+Provider rotation automatically switches the menu bar display between Codex and Claude. It pauses while the popover is open.
+
+Available rotation intervals:
+
+- `Off`
+- `5 sec`
+- `10 sec`
+- `20 sec`
+- `30 sec`
 
 CapBar refreshes automatically based on the selected interval. The default is `1 min`.
 
@@ -329,7 +345,7 @@ Codex reads may access:
 - Claude may temporarily return overload or rate-limit errors. CapBar keeps the latest successful values while backing off, provided that cache is no more than 24 hours old.
 - Codex usage depends on the latest local `rate_limits` event written by Codex.
 - CapBar currently displays two windows per provider: current session and weekly.
-- Settings currently cover auto-refresh and low-usage colors.
+- Settings currently cover provider rotation, auto-refresh, and low-usage colors.
 - No usage history, charts, or notifications are implemented yet.
 
 ## Troubleshooting
@@ -340,13 +356,15 @@ That is expected. CapBar is a menu bar accessory. Look in the macOS menu bar.
 
 ### I rebuilt, but the UI did not change
 
-You may still be running an old packaged app. Restart it:
+You may still be running the old copy from `Applications`. Quit CapBar and rebuild it:
 
 ```sh
 pkill -x CapBar
 scripts/package_app.sh
-open dist/CapBar.app
+open dist
 ```
+
+In Finder, replace the existing `CapBar.app` in `Applications` with the newly built `dist/CapBar.app`, then reopen CapBar from `Applications`.
 
 ### Codex shows no usage
 
@@ -360,12 +378,11 @@ Then run Codex once so it writes fresh session metadata.
 
 ### Codex reset time passed but usage looks stale
 
-CapBar clamps expired local Codex windows to reset locally. If it still looks stale, restart the packaged app to make sure you are running the latest build:
+CapBar clamps expired local Codex windows to reset locally. If it still looks stale, restart the installed app:
 
 ```sh
 pkill -x CapBar
-scripts/package_app.sh
-open dist/CapBar.app
+open /Applications/CapBar.app
 ```
 
 ### Claude shows logged in but usage unavailable
