@@ -3,20 +3,19 @@ import SwiftUI
 
 struct PopoverView: View {
     @ObservedObject var store: UsageStore
+    let onQuit: () -> Void
+
     @State private var isShowingSettings = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             if isShowingSettings {
                 settingsContent
-                    .transition(.opacity.combined(with: .move(edge: .trailing)))
             } else {
                 usageContent
-                    .transition(.opacity.combined(with: .move(edge: .leading)))
             }
         }
         .animation(.providerSelection, value: selectedSnapshot.provider)
-        .animation(.providerSelection, value: isShowingSettings)
         .padding(EdgeInsets(top: 16, leading: 16, bottom: 16, trailing: 16))
         .frame(width: 360)
         .background(.ultraThinMaterial)
@@ -24,6 +23,9 @@ struct PopoverView: View {
             popoverControls
         }
         .environment(\.colorScheme, .dark)
+        .onReceive(NotificationCenter.default.publisher(for: NSPopover.didCloseNotification)) { _ in
+            isShowingSettings = false
+        }
     }
 
     private var selectedSnapshot: ProviderSnapshot {
@@ -153,21 +155,20 @@ struct PopoverView: View {
     private var popoverControls: some View {
         HStack(spacing: 8) {
             Button {
-                withAnimation(.providerSelection) {
-                    isShowingSettings.toggle()
-                }
+                toggleSettings()
             } label: {
-                Image(systemName: isShowingSettings ? "gearshape.fill" : "gearshape")
+                Image(systemName: isShowingSettings ? "arrow.left" : "gearshape")
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(isShowingSettings ? Color.white.opacity(0.82) : Color.white.opacity(0.55))
+                    .foregroundStyle(Color.white.opacity(0.55))
                     .frame(width: 18, height: 18)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
-            .help(isShowingSettings ? "Usage" : "Settings")
+            .help(isShowingSettings ? "Back to usage" : "Settings")
+            .accessibilityLabel(isShowingSettings ? "Back to usage" : "Settings")
 
             Button {
-                NSApplication.shared.terminate(nil)
+                onQuit()
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 13, weight: .semibold))
@@ -180,6 +181,10 @@ struct PopoverView: View {
         }
         .padding(.top, 16)
         .padding(.trailing, 16)
+    }
+
+    private func toggleSettings() {
+        isShowingSettings.toggle()
     }
 
     private var menuBarProviderBinding: Binding<ProviderID> {

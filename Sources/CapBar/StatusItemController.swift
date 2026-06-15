@@ -48,7 +48,11 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         popover.behavior = .transient
         popover.delegate = self
         popover.contentSize = NSSize(width: 360, height: 300)
-        popover.contentViewController = NSHostingController(rootView: PopoverView(store: store))
+        popover.contentViewController = NSHostingController(
+            rootView: PopoverView(store: store, onQuit: { [weak self] in
+                self?.quitApplication()
+            })
+        )
     }
 
     private func bindStore() {
@@ -84,6 +88,14 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
 
     func popoverDidClose(_ notification: Notification) {
         configureProviderRotationTimer()
+    }
+
+    private func quitApplication() {
+        popover.performClose(nil)
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            NSApplication.shared.terminate(nil)
+        }
     }
 
     private func configureProviderRotationTimer() {
