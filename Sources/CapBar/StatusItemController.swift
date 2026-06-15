@@ -46,6 +46,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
 
     private func configurePopover() {
         popover.behavior = .transient
+        popover.animates = true
         popover.delegate = self
         popover.contentSize = NSSize(width: 360, height: 300)
         popover.contentViewController = NSHostingController(
@@ -72,6 +73,13 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
                 self?.configureProviderRotationTimer()
             }
             .store(in: &cancellables)
+
+        NotificationCenter.default.publisher(for: NSApplication.willResignActiveNotification)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.closePopoverIfShown()
+            }
+            .store(in: &cancellables)
     }
 
     @objc private func togglePopover() {
@@ -81,6 +89,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
             popover.performClose(nil)
         } else {
             pauseProviderRotation()
+            NSApplication.shared.activate(ignoringOtherApps: true)
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             popover.contentViewController?.view.window?.makeKey()
         }
@@ -96,6 +105,11 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
             NSApplication.shared.terminate(nil)
         }
+    }
+
+    private func closePopoverIfShown() {
+        guard popover.isShown else { return }
+        popover.performClose(nil)
     }
 
     private func configureProviderRotationTimer() {

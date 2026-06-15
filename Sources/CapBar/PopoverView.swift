@@ -18,7 +18,6 @@ struct PopoverView: View {
         .animation(.providerSelection, value: selectedSnapshot.provider)
         .padding(EdgeInsets(top: 16, leading: 16, bottom: 16, trailing: 16))
         .frame(width: 360)
-        .background(.ultraThinMaterial)
         .overlay(alignment: .topTrailing) {
             popoverControls
         }
