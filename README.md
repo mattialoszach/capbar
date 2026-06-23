@@ -34,6 +34,9 @@ CapBar runs in the macOS menu bar and does not appear in the Dock. Look for the 
 
 If macOS blocks the first launch, right-click `CapBar.app`, choose `Open`, and confirm. You can also allow it from `System Settings > Privacy & Security` if macOS shows an `Open Anyway` button.
 
+> [!WARNING]
+> CapBar is not yet signed with an Apple Developer ID, so macOS Gatekeeper may refuse to open the downloaded app even after the steps above. If you cannot get the release build to launch, use [Option 2: Build And Install From Source](#option-2-build-and-install-from-source) instead, which builds the app locally.
+
 ### Set Up A Provider
 
 CapBar reads account and usage information written by the provider CLIs. Install and log in to at least one provider before using CapBar:
