@@ -4,18 +4,20 @@ import SwiftUI
 struct ProviderLogoView: View {
     let provider: ProviderID
     var size: CGFloat = 16
-    var fallbackColor: Color = .white
+    var foregroundColor: Color = .white
 
     var body: some View {
         Group {
             if let image = logoImage {
                 Image(nsImage: image)
+                    .renderingMode(.template)
                     .resizable()
                     .scaledToFit()
+                    .foregroundStyle(foregroundColor)
             } else {
                 Image(systemName: provider.symbolName)
                     .font(.system(size: size * 0.72, weight: .semibold))
-                    .foregroundStyle(fallbackColor)
+                    .foregroundStyle(foregroundColor)
             }
         }
         .frame(width: size, height: size)

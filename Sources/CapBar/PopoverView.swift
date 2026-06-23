@@ -6,6 +6,7 @@ struct PopoverView: View {
     let onQuit: () -> Void
 
     @State private var isShowingSettings = false
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -21,10 +22,14 @@ struct PopoverView: View {
         .overlay(alignment: .topTrailing) {
             popoverControls
         }
-        .environment(\.colorScheme, .dark)
+        .environment(\.popoverPalette, palette)
         .onReceive(NotificationCenter.default.publisher(for: NSPopover.didCloseNotification)) { _ in
             isShowingSettings = false
         }
+    }
+
+    private var palette: PopoverPalette {
+        PopoverPalette(colorScheme: colorScheme)
     }
 
     private var selectedSnapshot: ProviderSnapshot {
@@ -50,22 +55,22 @@ struct PopoverView: View {
                 lowUsageColorsEnabled: store.settings.lowUsageColorsEnabled
             )
             Divider()
-                .overlay(Color.white.opacity(0.08))
+                .overlay(palette.divider)
                 .padding(.leading, 2)
             LimitRow(
                 metric: selectedSnapshot.weekly,
                 lowUsageColorsEnabled: store.settings.lowUsageColorsEnabled
             )
         }
-        .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+        .background(palette.panelBackground, in: RoundedRectangle(cornerRadius: 8))
         .overlay(
             RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.white.opacity(0.11), lineWidth: 1)
+                .stroke(palette.panelStroke, lineWidth: 1)
         )
 
         Text(selectedSnapshot.sourceDescription)
             .font(.system(size: 11, weight: .medium))
-            .foregroundStyle(Color.white.opacity(0.48))
+            .foregroundStyle(palette.tertiaryText)
             .lineLimit(1)
     }
 
@@ -77,13 +82,13 @@ struct PopoverView: View {
             ProviderRotationPickerRow(selection: providerRotationIntervalBinding)
 
             Divider()
-                .overlay(Color.white.opacity(0.08))
+                .overlay(palette.divider)
                 .padding(.leading, 40)
 
             RefreshIntervalPickerRow(selection: refreshIntervalBinding)
 
             Divider()
-                .overlay(Color.white.opacity(0.08))
+                .overlay(palette.divider)
                 .padding(.leading, 40)
 
             SettingsToggleRow(
@@ -93,7 +98,7 @@ struct PopoverView: View {
             )
 
             Divider()
-                .overlay(Color.white.opacity(0.08))
+                .overlay(palette.divider)
                 .padding(.leading, 40)
 
             SettingsRefreshRow(
@@ -101,26 +106,26 @@ struct PopoverView: View {
                 onRefresh: { store.refresh() }
             )
         }
-        .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+        .background(palette.panelBackground, in: RoundedRectangle(cornerRadius: 8))
         .overlay(
             RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.white.opacity(0.11), lineWidth: 1)
+                .stroke(palette.panelStroke, lineWidth: 1)
         )
     }
 
     private var header: some View {
         HStack(spacing: 9) {
-            ProviderLogoView(provider: selectedSnapshot.provider, size: 22, fallbackColor: .white.opacity(0.88))
+            ProviderLogoView(provider: selectedSnapshot.provider, size: 22, foregroundColor: palette.primaryText)
                 .padding(5)
-                .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 7))
+                .background(palette.iconBackground, in: RoundedRectangle(cornerRadius: 7))
 
             VStack(alignment: .leading, spacing: 1) {
                 Text(selectedSnapshot.provider.displayName)
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(palette.primaryText)
                 Text("Usage limits")
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Color.white.opacity(0.55))
+                    .foregroundStyle(palette.secondaryText)
             }
 
             Spacer()
@@ -132,18 +137,18 @@ struct PopoverView: View {
         HStack(spacing: 9) {
             Image(systemName: "gearshape.fill")
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundStyle(Color.white.opacity(0.88))
+                .foregroundStyle(palette.primaryText)
                 .frame(width: 22, height: 22)
                 .padding(5)
-                .background(Color.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 7))
+                .background(palette.iconBackground, in: RoundedRectangle(cornerRadius: 7))
 
             VStack(alignment: .leading, spacing: 1) {
                 Text("Settings")
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(palette.primaryText)
                 Text("Preferences")
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Color.white.opacity(0.55))
+                    .foregroundStyle(palette.secondaryText)
             }
 
             Spacer()
@@ -158,7 +163,7 @@ struct PopoverView: View {
             } label: {
                 Image(systemName: isShowingSettings ? "arrow.left" : "gearshape")
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color.white.opacity(0.55))
+                    .foregroundStyle(palette.controlIcon)
                     .frame(width: 18, height: 18)
                     .contentShape(Rectangle())
             }
@@ -171,7 +176,7 @@ struct PopoverView: View {
             } label: {
                 Image(systemName: "xmark")
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(Color.white.opacity(0.55))
+                    .foregroundStyle(palette.controlIcon)
                     .frame(width: 18, height: 18)
                     .contentShape(Rectangle())
             }
@@ -219,8 +224,136 @@ struct PopoverView: View {
     }
 }
 
+private struct PopoverPalette {
+    private let isDark: Bool
+
+    init(colorScheme: ColorScheme) {
+        isDark = colorScheme == .dark
+    }
+
+    var primaryText: Color {
+        isDark ? .white : Color(red: 0.08, green: 0.09, blue: 0.11)
+    }
+
+    var secondaryText: Color {
+        primaryText.opacity(isDark ? 0.58 : 0.68)
+    }
+
+    var tertiaryText: Color {
+        primaryText.opacity(isDark ? 0.48 : 0.56)
+    }
+
+    var controlIcon: Color {
+        primaryText.opacity(isDark ? 0.55 : 0.62)
+    }
+
+    var iconBackground: Color {
+        primaryText.opacity(isDark ? 0.08 : 0.07)
+    }
+
+    var panelBackground: Color {
+        primaryText.opacity(isDark ? 0.06 : 0.045)
+    }
+
+    var panelStroke: Color {
+        primaryText.opacity(isDark ? 0.11 : 0.12)
+    }
+
+    var divider: Color {
+        primaryText.opacity(isDark ? 0.08 : 0.12)
+    }
+
+    var selectedProviderText: Color {
+        isDark ? .white : primaryText
+    }
+
+    var activeStatus: Color {
+        isDark ? Color(red: 0.62, green: 0.80, blue: 1.0) : Color(red: 0.02, green: 0.38, blue: 0.70)
+    }
+
+    var activeStatusDetail: Color {
+        activeStatus.opacity(isDark ? 0.68 : 0.76)
+    }
+
+    var inactiveStatus: Color {
+        primaryText.opacity(isDark ? 0.36 : 0.48)
+    }
+
+    var inactiveStatusDetail: Color {
+        primaryText.opacity(isDark ? 0.42 : 0.54)
+    }
+
+    var normalProgressText: Color {
+        primaryText.opacity(isDark ? 0.70 : 0.72)
+    }
+
+    var unavailableProgressText: Color {
+        primaryText.opacity(isDark ? 0.38 : 0.44)
+    }
+
+    var normalProgressFill: Color {
+        primaryText.opacity(isDark ? 0.88 : 0.68)
+    }
+
+    var unavailableProgressFill: Color {
+        primaryText.opacity(isDark ? 0.28 : 0.24)
+    }
+
+    var neutralProgressTrack: Color {
+        primaryText.opacity(isDark ? 0.16 : 0.14)
+    }
+
+    var warningText: Color {
+        isDark ? Color(red: 1.0, green: 0.68, blue: 0.30).opacity(0.92) : Color(red: 0.70, green: 0.37, blue: 0.00)
+    }
+
+    var warningProgressFill: Color {
+        isDark ? Color(red: 1.0, green: 0.66, blue: 0.28).opacity(0.88) : Color(red: 0.80, green: 0.43, blue: 0.00)
+    }
+
+    var warningProgressTrack: Color {
+        Color(red: 1.0, green: 0.66, blue: 0.28).opacity(isDark ? 0.18 : 0.20)
+    }
+
+    var dangerText: Color {
+        isDark ? Color(red: 1.0, green: 0.36, blue: 0.32).opacity(0.94) : Color(red: 0.72, green: 0.08, blue: 0.05)
+    }
+
+    var dangerProgressFill: Color {
+        isDark ? Color(red: 1.0, green: 0.32, blue: 0.30).opacity(0.90) : Color(red: 0.80, green: 0.10, blue: 0.07)
+    }
+
+    var dangerProgressTrack: Color {
+        Color(red: 1.0, green: 0.32, blue: 0.30).opacity(isDark ? 0.20 : 0.18)
+    }
+
+    func selectedProviderBackground(for provider: ProviderID) -> Color {
+        provider.selectionAccentColor.opacity(isDark ? 0.22 : 0.16)
+    }
+
+    func selectedProviderStroke(for provider: ProviderID) -> Color {
+        provider.selectionAccentColor.opacity(isDark ? 0.34 : 0.28)
+    }
+
+    func selectedProviderShadow(for provider: ProviderID) -> Color {
+        provider.selectionAccentColor.opacity(isDark ? 0.16 : 0.10)
+    }
+}
+
+private struct PopoverPaletteKey: EnvironmentKey {
+    static let defaultValue = PopoverPalette(colorScheme: .dark)
+}
+
+private extension EnvironmentValues {
+    var popoverPalette: PopoverPalette {
+        get { self[PopoverPaletteKey.self] }
+        set { self[PopoverPaletteKey.self] = newValue }
+    }
+}
+
 private struct ProviderSelector: View {
     @Binding var selection: ProviderID
+    @Environment(\.popoverPalette) private var palette
     @Namespace private var selectionNamespace
 
     var body: some View {
@@ -235,12 +368,12 @@ private struct ProviderSelector: View {
                     ZStack {
                         if selection == provider {
                             RoundedRectangle(cornerRadius: 6)
-                                .fill(provider.selectionAccentColor.opacity(0.22))
+                                .fill(palette.selectedProviderBackground(for: provider))
                                 .overlay(
                                     RoundedRectangle(cornerRadius: 6)
-                                        .stroke(provider.selectionAccentColor.opacity(0.34), lineWidth: 1)
+                                        .stroke(palette.selectedProviderStroke(for: provider), lineWidth: 1)
                                 )
-                                .shadow(color: provider.selectionAccentColor.opacity(0.16), radius: 5, y: 1)
+                                .shadow(color: palette.selectedProviderShadow(for: provider), radius: 5, y: 1)
                                 .matchedGeometryEffect(id: "selectedProvider", in: selectionNamespace)
                         }
 
@@ -248,11 +381,11 @@ private struct ProviderSelector: View {
                             ProviderLogoView(
                                 provider: provider,
                                 size: 14,
-                                fallbackColor: selection == provider ? .white : Color.white.opacity(0.62)
+                                foregroundColor: selection == provider ? palette.selectedProviderText : palette.secondaryText
                             )
                             Text(provider.shortName)
                                 .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(selection == provider ? Color.white : Color.white.opacity(0.58))
+                                .foregroundStyle(selection == provider ? palette.selectedProviderText : palette.secondaryText)
                                 .lineLimit(1)
                         }
                         .frame(maxWidth: .infinity, minHeight: 28)
@@ -265,10 +398,10 @@ private struct ProviderSelector: View {
             }
         }
         .padding(3)
-        .background(Color.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+        .background(palette.panelBackground, in: RoundedRectangle(cornerRadius: 8))
         .overlay(
             RoundedRectangle(cornerRadius: 8)
-                .stroke(Color.white.opacity(0.11), lineWidth: 1)
+                .stroke(palette.panelStroke, lineWidth: 1)
         )
     }
 }
@@ -286,6 +419,7 @@ private extension ProviderID {
 
 private struct ProviderRotationPickerRow: View {
     @Binding var selection: ProviderRotationInterval
+    @Environment(\.popoverPalette) private var palette
 
     var body: some View {
         HStack(spacing: 10) {
@@ -293,7 +427,7 @@ private struct ProviderRotationPickerRow: View {
 
             Text("Rotate provider")
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(palette.primaryText)
 
             Spacer()
 
@@ -314,6 +448,7 @@ private struct ProviderRotationPickerRow: View {
 
 private struct RefreshIntervalPickerRow: View {
     @Binding var selection: RefreshInterval
+    @Environment(\.popoverPalette) private var palette
 
     var body: some View {
         HStack(spacing: 10) {
@@ -321,7 +456,7 @@ private struct RefreshIntervalPickerRow: View {
 
             Text("Auto refresh")
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(palette.primaryText)
 
             Spacer()
 
@@ -344,6 +479,7 @@ private struct SettingsToggleRow: View {
     let title: String
     let systemName: String
     @Binding var isOn: Bool
+    @Environment(\.popoverPalette) private var palette
 
     var body: some View {
         HStack(spacing: 10) {
@@ -351,7 +487,7 @@ private struct SettingsToggleRow: View {
 
             Text(title)
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(palette.primaryText)
 
             Spacer()
 
@@ -368,6 +504,7 @@ private struct SettingsToggleRow: View {
 private struct SettingsRefreshRow: View {
     let isRefreshing: Bool
     let onRefresh: () -> Void
+    @Environment(\.popoverPalette) private var palette
 
     var body: some View {
         HStack(spacing: 10) {
@@ -375,7 +512,7 @@ private struct SettingsRefreshRow: View {
 
             Text("Refresh now")
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(palette.primaryText)
 
             Spacer()
 
@@ -388,11 +525,12 @@ private struct SettingsRefreshRow: View {
 
 private struct SettingsIcon: View {
     let systemName: String
+    @Environment(\.popoverPalette) private var palette
 
     var body: some View {
         Image(systemName: systemName)
             .font(.system(size: 12, weight: .semibold))
-            .foregroundStyle(Color.white.opacity(0.62))
+            .foregroundStyle(palette.controlIcon)
             .frame(width: 18, height: 18)
     }
 }
@@ -402,6 +540,7 @@ private struct AccountLine: View {
     let isRefreshing: Bool
     let onLogin: () -> Void
     let onRefresh: () -> Void
+    @Environment(\.popoverPalette) private var palette
 
     var body: some View {
         HStack(spacing: 8) {
@@ -442,11 +581,11 @@ private struct AccountLine: View {
     }
 
     private var statusColor: Color {
-        snapshot.account.isLoggedIn ? Color(red: 0.62, green: 0.80, blue: 1.0) : Color.white.opacity(0.36)
+        snapshot.account.isLoggedIn ? palette.activeStatus : palette.inactiveStatus
     }
 
     private var detailColor: Color {
-        snapshot.account.isLoggedIn ? Color(red: 0.62, green: 0.80, blue: 1.0).opacity(0.68) : Color.white.opacity(0.42)
+        snapshot.account.isLoggedIn ? palette.activeStatusDetail : palette.inactiveStatusDetail
     }
 }
 
@@ -455,12 +594,13 @@ private struct RefreshButton: View {
     let onRefresh: () -> Void
 
     @State private var rotationDegrees = 0.0
+    @Environment(\.popoverPalette) private var palette
 
     var body: some View {
         Button(action: onRefresh) {
             Image(systemName: isRefreshing ? "arrow.triangle.2.circlepath" : "arrow.clockwise")
                 .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(isRefreshing ? Color(red: 0.62, green: 0.80, blue: 1.0) : Color.white.opacity(0.62))
+                .foregroundStyle(isRefreshing ? palette.activeStatus : palette.controlIcon)
                 .rotationEffect(.degrees(rotationDegrees))
                 .frame(width: 22, height: 22)
                 .contentShape(Rectangle())
@@ -492,6 +632,7 @@ private struct RefreshButton: View {
 private struct LimitRow: View {
     let metric: LimitMetric?
     let lowUsageColorsEnabled: Bool
+    @Environment(\.popoverPalette) private var palette
 
     var body: some View {
         let tone = UsageTone(metric: metric, lowUsageColorsEnabled: lowUsageColorsEnabled)
@@ -500,11 +641,11 @@ private struct LimitRow: View {
             VStack(alignment: .leading, spacing: 5) {
                 Text(metric?.title ?? "Usage limit")
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(palette.primaryText)
                     .lineLimit(1)
                 Text(metric?.detail ?? "Unavailable")
                     .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Color.white.opacity(0.58))
+                    .foregroundStyle(palette.secondaryText)
                     .lineLimit(1)
                     .minimumScaleFactor(0.86)
             }
@@ -512,14 +653,14 @@ private struct LimitRow: View {
 
             SimpleProgressBar(
                 fraction: metric?.fractionRemaining ?? 0,
-                fillColor: tone.progressFillColor,
-                trackColor: tone.progressTrackColor
+                fillColor: tone.progressFillColor(in: palette),
+                trackColor: tone.progressTrackColor(in: palette)
             )
                 .frame(height: 6)
 
             Text(metric?.remainingText ?? "Unavailable")
                 .font(.system(size: 12, weight: .semibold))
-                .foregroundStyle(tone.remainingTextColor)
+                .foregroundStyle(tone.remainingTextColor(in: palette))
                 .monospacedDigit()
                 .frame(width: 70, alignment: .trailing)
                 .lineLimit(1)
@@ -580,40 +721,40 @@ private enum UsageTone {
         }
     }
 
-    var remainingTextColor: Color {
+    func remainingTextColor(in palette: PopoverPalette) -> Color {
         switch self {
         case .unavailable:
-            Color.white.opacity(0.38)
+            palette.unavailableProgressText
         case .normal:
-            Color.white.opacity(0.70)
+            palette.normalProgressText
         case .warning:
-            Color(red: 1.0, green: 0.68, blue: 0.30).opacity(0.92)
+            palette.warningText
         case .danger:
-            Color(red: 1.0, green: 0.36, blue: 0.32).opacity(0.94)
+            palette.dangerText
         }
     }
 
-    var progressFillColor: Color {
+    func progressFillColor(in palette: PopoverPalette) -> Color {
         switch self {
         case .unavailable:
-            Color.white.opacity(0.28)
+            palette.unavailableProgressFill
         case .normal:
-            Color.white.opacity(0.88)
+            palette.normalProgressFill
         case .warning:
-            Color(red: 1.0, green: 0.66, blue: 0.28).opacity(0.88)
+            palette.warningProgressFill
         case .danger:
-            Color(red: 1.0, green: 0.32, blue: 0.30).opacity(0.90)
+            palette.dangerProgressFill
         }
     }
 
-    var progressTrackColor: Color {
+    func progressTrackColor(in palette: PopoverPalette) -> Color {
         switch self {
         case .warning:
-            Color(red: 1.0, green: 0.66, blue: 0.28).opacity(0.18)
+            palette.warningProgressTrack
         case .danger:
-            Color(red: 1.0, green: 0.32, blue: 0.30).opacity(0.20)
+            palette.dangerProgressTrack
         default:
-            Color.white.opacity(0.16)
+            palette.neutralProgressTrack
         }
     }
 }
