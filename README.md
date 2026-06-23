@@ -83,7 +83,43 @@ open dist
 
 Then drag `CapBar.app` from the `dist` folder into your `Applications` folder. Open CapBar from `Applications` after the copy finishes.
 
-To rebuild an installed copy later, quit CapBar, run the package script again, and replace the existing app in `Applications` with the new `dist/CapBar.app`.
+To rebuild an installed copy later, quit CapBar, run the package script again, and replace the existing app in `Applications` with the new `dist/CapBar.app`. The Makefile automates this whole flow (see below).
+
+### Updating From Source With The Makefile
+
+CapBar is not signed with an Apple Developer ID, so it does not ship in-app auto-updates. Instead, a Makefile in the repository root pulls the latest source, rebuilds the app, and installs it into `Applications` for you.
+
+To update an existing source install, run this from the repository:
+
+```sh
+make update
+```
+
+This will:
+
+1. Run `git pull` to fetch the latest changes.
+2. Rebuild the app with `scripts/package_app.sh`.
+3. Detect whether `CapBar.app` is already in `Applications`, show the installed and newly built version numbers, and ask before replacing it.
+4. Quit the running app, replace the installed copy, and relaunch it.
+
+If you only want to install or reinstall the current build without pulling, use:
+
+```sh
+make install
+```
+
+Other available targets:
+
+```sh
+make build       # build dist/CapBar.app only
+make run         # build, then launch from dist without installing
+make reinstall   # reinstall the existing dist build without rebuilding
+make uninstall   # quit and remove CapBar from Applications
+make clean       # remove .build and dist
+make help        # list all targets
+```
+
+Because the build is ad-hoc signed rather than notarized, macOS may still warn on the first launch after an update. If it does, right-click `CapBar.app`, choose `Open`, and confirm.
 
 ### Run Without Installing
 
@@ -356,7 +392,13 @@ That is expected. CapBar is a menu bar accessory. Look in the macOS menu bar.
 
 ### I rebuilt, but the UI did not change
 
-You may still be running the old copy from `Applications`. Quit CapBar and rebuild it:
+You may still be running the old copy from `Applications`. The simplest fix is to rebuild and reinstall in one step:
+
+```sh
+make update
+```
+
+Or do it manually by quitting CapBar and rebuilding it:
 
 ```sh
 pkill -x CapBar
@@ -423,6 +465,8 @@ Sources/CapBar/
 
 scripts/
   package_app.sh               Builds dist/CapBar.app
+
+Makefile                       Build, install, and update targets (see Updating From Source)
 ```
 
 ## Logos
