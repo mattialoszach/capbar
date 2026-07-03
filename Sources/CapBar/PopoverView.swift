@@ -686,7 +686,7 @@ private struct LimitRow: View {
                 .frame(height: 6)
 
             Text(metric?.remainingText ?? "Unavailable")
-                .font(.system(size: 11, weight: .semibold))
+                .font(.system(size: 10.5, weight: .semibold))
                 .foregroundStyle(tone.remainingTextColor(in: palette))
                 .monospacedDigit()
                 .frame(width: 64, alignment: .trailing)
