@@ -72,6 +72,7 @@ struct PopoverView: View {
             snapshot: store.apiSnapshot(for: selectedSnapshot.provider),
             provider: selectedSnapshot.provider,
             isCheckingKey: store.isCheckingAPIKey(for: selectedSnapshot.provider),
+            isRemovingKey: store.isRemovingAPIKey(for: selectedSnapshot.provider),
             lowUsageColorsEnabled: store.settings.lowUsageColorsEnabled,
             monthlyBudgetUSD: store.settings.apiMonthlyBudgetUSD(for: selectedSnapshot.provider),
             onSaveKey: { store.setAPIKey($0, for: selectedSnapshot.provider) },
@@ -785,6 +786,7 @@ private struct APIAccountSection: View {
     let snapshot: APIAccountSnapshot
     let provider: ProviderID
     let isCheckingKey: Bool
+    let isRemovingKey: Bool
     let lowUsageColorsEnabled: Bool
     let monthlyBudgetUSD: Double?
     let onSaveKey: (String) -> Void
@@ -894,8 +896,8 @@ private struct APIAccountSection: View {
 
     @ViewBuilder
     private var trailingContent: some View {
-        if isCheckingKey {
-            checkingKeyIndicator
+        if let keyOperationText {
+            keyOperationIndicator(text: keyOperationText)
         } else {
             switch snapshot.status {
             case .noKey:
@@ -931,19 +933,33 @@ private struct APIAccountSection: View {
         }
     }
 
-    private var checkingKeyIndicator: some View {
+    private var keyOperationText: String? {
+        if isRemovingKey {
+            return "Removing"
+        }
+        if isCheckingKey {
+            return "Checking"
+        }
+        return nil
+    }
+
+    private var isKeyOperationInProgress: Bool {
+        keyOperationText != nil
+    }
+
+    private func keyOperationIndicator(text: String) -> some View {
         HStack(spacing: 6) {
             ProgressView()
                 .controlSize(.small)
                 .scaleEffect(0.58)
                 .frame(width: 12, height: 12)
-            Text("Checking")
+            Text(text)
                 .font(.system(size: 12, weight: .semibold))
                 .foregroundStyle(palette.activeStatus)
                 .lineLimit(1)
         }
         .fixedSize()
-        .help("Checking \(provider.platformName) API key")
+        .help("\(text) \(provider.platformName) API key")
     }
 
     private var keyMenu: some View {
@@ -973,7 +989,7 @@ private struct APIAccountSection: View {
         .menuIndicator(.hidden)
         .frame(width: 22, height: 22)
         .onHover { isMenuHovering = $0 }
-        .disabled(isCheckingKey)
+        .disabled(isKeyOperationInProgress)
         .help("API key options")
     }
 
@@ -994,7 +1010,7 @@ private struct APIAccountSection: View {
                 .textFieldStyle(.roundedBorder)
                 .font(.system(size: 12))
                 .onSubmit(saveDraftKey)
-                .disabled(isCheckingKey)
+                .disabled(isKeyOperationInProgress)
 
             HStack {
                 Text("Stored locally for CapBar, only sent to \(provider.platformName)")
@@ -1009,14 +1025,14 @@ private struct APIAccountSection: View {
                 }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
-                .disabled(isCheckingKey)
+                .disabled(isKeyOperationInProgress)
 
                 Button("Save") {
                     saveDraftKey()
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.small)
-                .disabled(isCheckingKey || draftKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(isKeyOperationInProgress || draftKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
         .padding(.horizontal, 12)
@@ -1024,8 +1040,8 @@ private struct APIAccountSection: View {
     }
 
     private var subtitleText: String {
-        if isCheckingKey {
-            return "Checking API key"
+        if let keyOperationText {
+            return "\(keyOperationText) API key"
         }
 
         switch snapshot.status {
@@ -1078,7 +1094,7 @@ private struct APIAccountSection: View {
     }
 
     private var subtitleColor: Color {
-        if isCheckingKey {
+        if isKeyOperationInProgress {
             return palette.activeStatus
         }
 
@@ -1172,7 +1188,7 @@ private struct APIAccountSection: View {
 
     private func saveDraftKey() {
         let trimmed = draftKey.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.isEmpty == false, isCheckingKey == false else { return }
+        guard trimmed.isEmpty == false, isKeyOperationInProgress == false else { return }
         onSaveKey(trimmed)
         cancelEditing()
     }

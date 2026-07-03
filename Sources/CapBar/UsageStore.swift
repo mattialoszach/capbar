@@ -6,12 +6,14 @@ final class UsageStore: ObservableObject {
     @Published private(set) var snapshots: [ProviderSnapshot] = []
     @Published private(set) var apiSnapshots: [APIAccountSnapshot] = []
     @Published private(set) var checkingAPIKeyProviderIDs: Set<String> = []
+    @Published private(set) var removingAPIKeyProviderIDs: Set<String> = []
     @Published private(set) var isRefreshing = false
     @Published private(set) var lastError: String?
 
     private var timer: Timer?
     private var pendingForceRefresh = false
     private var pendingAPIKeyCheckProviderIDs: Set<String> = []
+    private var pendingAPIKeyRemovalProviderIDs: Set<String> = []
     private let userDefaultsKey = "CapBar.UsageSettings.v2"
 
     init() {
@@ -36,6 +38,10 @@ final class UsageStore: ObservableObject {
         checkingAPIKeyProviderIDs.contains(provider.rawValue)
     }
 
+    func isRemovingAPIKey(for provider: ProviderID) -> Bool {
+        removingAPIKeyProviderIDs.contains(provider.rawValue)
+    }
+
     func refresh(force: Bool = false) {
         guard !isRefreshing else {
             if force {
@@ -47,7 +53,9 @@ final class UsageStore: ObservableObject {
         isRefreshing = true
         lastError = nil
         let activeAPIKeyCheckProviderIDs = pendingAPIKeyCheckProviderIDs
+        let activeAPIKeyRemovalProviderIDs = pendingAPIKeyRemovalProviderIDs
         pendingAPIKeyCheckProviderIDs.removeAll()
+        pendingAPIKeyRemovalProviderIDs.removeAll()
 
         let task = Task.detached(priority: .utility) { () -> ([ProviderSnapshot], [APIAccountSnapshot]) in
             let codex = CodexUsageReader().read()
@@ -62,8 +70,10 @@ final class UsageStore: ObservableObject {
             self?.snapshots = snapshots
             self?.apiSnapshots = apiSnapshots
             if let self {
-                let stillPending = self.pendingAPIKeyCheckProviderIDs
-                self.checkingAPIKeyProviderIDs.subtract(activeAPIKeyCheckProviderIDs.subtracting(stillPending))
+                let stillPendingChecks = self.pendingAPIKeyCheckProviderIDs
+                let stillPendingRemovals = self.pendingAPIKeyRemovalProviderIDs
+                self.checkingAPIKeyProviderIDs.subtract(activeAPIKeyCheckProviderIDs.subtracting(stillPendingChecks))
+                self.removingAPIKeyProviderIDs.subtract(activeAPIKeyRemovalProviderIDs.subtracting(stillPendingRemovals))
             }
             self?.isRefreshing = false
             if self?.pendingForceRefresh == true {
@@ -76,6 +86,8 @@ final class UsageStore: ObservableObject {
     func setAPIKey(_ key: String, for provider: ProviderID) {
         checkingAPIKeyProviderIDs.insert(provider.rawValue)
         pendingAPIKeyCheckProviderIDs.insert(provider.rawValue)
+        removingAPIKeyProviderIDs.remove(provider.rawValue)
+        pendingAPIKeyRemovalProviderIDs.remove(provider.rawValue)
         guard APIKeyStore.setKey(key, for: provider) else {
             checkingAPIKeyProviderIDs.remove(provider.rawValue)
             pendingAPIKeyCheckProviderIDs.remove(provider.rawValue)
@@ -88,9 +100,11 @@ final class UsageStore: ObservableObject {
     func clearAPIKey(for provider: ProviderID) {
         checkingAPIKeyProviderIDs.remove(provider.rawValue)
         pendingAPIKeyCheckProviderIDs.remove(provider.rawValue)
+        removingAPIKeyProviderIDs.insert(provider.rawValue)
+        pendingAPIKeyRemovalProviderIDs.insert(provider.rawValue)
         APIKeyStore.deleteKey(for: provider)
         APIAccountReader(provider: provider).clearCache()
-        refresh()
+        refresh(force: true)
     }
 
     func setAPIMonthlyBudget(_ budgetUSD: Double?, for provider: ProviderID) {
