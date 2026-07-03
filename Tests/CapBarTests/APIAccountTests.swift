@@ -228,12 +228,15 @@ final class APIAccountTests: XCTestCase {
             #"{"menuBarProvider":"claude","refreshInterval":300,"lowUsageColorsEnabled":false}"#.utf8
         )
         let legacySettings = try JSONDecoder().decode(UsageSettings.self, from: legacy)
+        XCTAssertTrue(legacySettings.apiSectionVisible)
         XCTAssertTrue(legacySettings.apiMonthlyBudgetsUSD.isEmpty)
 
         var settings = UsageSettings.default
+        settings.apiSectionVisible = false
         settings.apiMonthlyBudgetsUSD["claude"] = 250
         let encoded = try JSONEncoder().encode(settings)
         let decoded = try JSONDecoder().decode(UsageSettings.self, from: encoded)
+        XCTAssertFalse(decoded.apiSectionVisible)
         XCTAssertEqual(decoded.apiMonthlyBudgetUSD(for: .claude) ?? -1, 250, accuracy: 0.0001)
         XCTAssertNil(decoded.apiMonthlyBudgetUSD(for: .codex))
     }

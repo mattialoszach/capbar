@@ -10,6 +10,7 @@ final class ModelsTests: XCTestCase {
         let settings = try JSONDecoder().decode(UsageSettings.self, from: data)
 
         XCTAssertEqual(settings.providerRotationInterval, .off)
+        XCTAssertTrue(settings.apiSectionVisible)
     }
 
     func testProviderRotationIntervals() {

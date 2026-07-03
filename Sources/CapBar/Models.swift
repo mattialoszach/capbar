@@ -47,6 +47,7 @@ struct UsageSettings: Codable, Equatable {
     var providerRotationInterval: ProviderRotationInterval
     var refreshInterval: RefreshInterval
     var lowUsageColorsEnabled: Bool
+    var apiSectionVisible: Bool
     var apiMonthlyBudgetsUSD: [String: Double]
 
     static let `default` = UsageSettings(menuBarProvider: .codex)
@@ -56,12 +57,14 @@ struct UsageSettings: Codable, Equatable {
         providerRotationInterval: ProviderRotationInterval = .off,
         refreshInterval: RefreshInterval = .oneMinute,
         lowUsageColorsEnabled: Bool = true,
+        apiSectionVisible: Bool = true,
         apiMonthlyBudgetsUSD: [String: Double] = [:]
     ) {
         self.menuBarProvider = menuBarProvider
         self.providerRotationInterval = providerRotationInterval
         self.refreshInterval = refreshInterval
         self.lowUsageColorsEnabled = lowUsageColorsEnabled
+        self.apiSectionVisible = apiSectionVisible
         self.apiMonthlyBudgetsUSD = apiMonthlyBudgetsUSD
     }
 
@@ -74,6 +77,7 @@ struct UsageSettings: Codable, Equatable {
         case providerRotationInterval
         case refreshInterval
         case lowUsageColorsEnabled
+        case apiSectionVisible
         case apiMonthlyBudgetsUSD
     }
 
@@ -83,6 +87,7 @@ struct UsageSettings: Codable, Equatable {
         providerRotationInterval = try container.decodeIfPresent(ProviderRotationInterval.self, forKey: .providerRotationInterval) ?? .off
         refreshInterval = try container.decodeIfPresent(RefreshInterval.self, forKey: .refreshInterval) ?? .oneMinute
         lowUsageColorsEnabled = try container.decodeIfPresent(Bool.self, forKey: .lowUsageColorsEnabled) ?? true
+        apiSectionVisible = try container.decodeIfPresent(Bool.self, forKey: .apiSectionVisible) ?? true
         apiMonthlyBudgetsUSD = try container.decodeIfPresent([String: Double].self, forKey: .apiMonthlyBudgetsUSD) ?? [:]
     }
 }

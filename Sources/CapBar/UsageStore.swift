@@ -141,6 +141,11 @@ final class UsageStore: ObservableObject {
         persistSettings()
     }
 
+    func setAPISectionVisible(_ isVisible: Bool) {
+        settings.apiSectionVisible = isVisible
+        persistSettings()
+    }
+
     func runCLILogin(for provider: ProviderID) {
         ProviderLoginRunner.runCLILogin(for: provider)
     }

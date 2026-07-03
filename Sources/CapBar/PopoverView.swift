@@ -68,17 +68,19 @@ struct PopoverView: View {
                 .stroke(palette.panelStroke, lineWidth: 1)
         )
 
-        APIAccountSection(
-            snapshot: store.apiSnapshot(for: selectedSnapshot.provider),
-            provider: selectedSnapshot.provider,
-            isCheckingKey: store.isCheckingAPIKey(for: selectedSnapshot.provider),
-            isRemovingKey: store.isRemovingAPIKey(for: selectedSnapshot.provider),
-            lowUsageColorsEnabled: store.settings.lowUsageColorsEnabled,
-            monthlyBudgetUSD: store.settings.apiMonthlyBudgetUSD(for: selectedSnapshot.provider),
-            onSaveKey: { store.setAPIKey($0, for: selectedSnapshot.provider) },
-            onRemoveKey: { store.clearAPIKey(for: selectedSnapshot.provider) },
-            onSaveBudget: { store.setAPIMonthlyBudget($0, for: selectedSnapshot.provider) }
-        )
+        if store.settings.apiSectionVisible {
+            APIAccountSection(
+                snapshot: store.apiSnapshot(for: selectedSnapshot.provider),
+                provider: selectedSnapshot.provider,
+                isCheckingKey: store.isCheckingAPIKey(for: selectedSnapshot.provider),
+                isRemovingKey: store.isRemovingAPIKey(for: selectedSnapshot.provider),
+                lowUsageColorsEnabled: store.settings.lowUsageColorsEnabled,
+                monthlyBudgetUSD: store.settings.apiMonthlyBudgetUSD(for: selectedSnapshot.provider),
+                onSaveKey: { store.setAPIKey($0, for: selectedSnapshot.provider) },
+                onRemoveKey: { store.clearAPIKey(for: selectedSnapshot.provider) },
+                onSaveBudget: { store.setAPIMonthlyBudget($0, for: selectedSnapshot.provider) }
+            )
+        }
 
         Text(selectedSnapshot.sourceDescription)
             .font(.system(size: 11, weight: .medium))
@@ -107,6 +109,16 @@ struct PopoverView: View {
                 title: "Low usage colors",
                 systemName: "exclamationmark.triangle",
                 isOn: lowUsageColorsBinding
+            )
+
+            Divider()
+                .overlay(palette.divider)
+                .padding(.leading, 40)
+
+            SettingsToggleRow(
+                title: "Show API usage",
+                systemName: "key",
+                isOn: apiSectionVisibleBinding
             )
 
             Divider()
@@ -232,6 +244,13 @@ struct PopoverView: View {
         Binding(
             get: { store.settings.lowUsageColorsEnabled },
             set: { store.setLowUsageColorsEnabled($0) }
+        )
+    }
+
+    private var apiSectionVisibleBinding: Binding<Bool> {
+        Binding(
+            get: { store.settings.apiSectionVisible },
+            set: { store.setAPISectionVisible($0) }
         )
     }
 }
