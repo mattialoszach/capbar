@@ -259,6 +259,10 @@ private struct PopoverPalette {
         primaryText.opacity(isDark ? 0.55 : 0.62)
     }
 
+    var pressedControlIcon: Color {
+        primaryText.opacity(isDark ? 0.42 : 0.78)
+    }
+
     var iconBackground: Color {
         primaryText.opacity(isDark ? 0.08 : 0.07)
     }
@@ -802,7 +806,6 @@ private struct APIAccountSection: View {
     @State private var editingMode: EditingMode = .none
     @State private var draftKey = ""
     @State private var draftBudget = ""
-    @State private var isMenuHovering = false
     @Environment(\.popoverPalette) private var palette
 
     var body: some View {
@@ -829,11 +832,9 @@ private struct APIAccountSection: View {
         )
         .onChange(of: provider) { _ in
             cancelEditing()
-            isMenuHovering = false
         }
         .onReceive(NotificationCenter.default.publisher(for: NSPopover.didCloseNotification)) { _ in
             cancelEditing()
-            isMenuHovering = false
         }
     }
 
@@ -963,34 +964,13 @@ private struct APIAccountSection: View {
     }
 
     private var keyMenu: some View {
-        Menu {
-            Button("Update Key…") {
-                startEditingKey()
-            }
-            Button(monthlyBudgetUSD == nil ? "Set Monthly Budget…" : "Edit Monthly Budget…") {
-                startEditingBudget()
-            }
-            Divider()
-            Button("Remove Key", role: .destructive) {
-                onRemoveKey()
-            }
-        } label: {
-            Image(systemName: "ellipsis.circle")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(palette.controlIcon)
-                .frame(width: 22, height: 22)
-                .background(
-                    Circle()
-                        .fill(isMenuHovering ? palette.iconBackground : Color.clear)
-                )
-                .contentShape(Circle())
-        }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
-        .frame(width: 22, height: 22)
-        .onHover { isMenuHovering = $0 }
-        .disabled(isKeyOperationInProgress)
-        .help("API key options")
+        APIKeyOptionsButton(
+            monthlyBudgetUSD: monthlyBudgetUSD,
+            isDisabled: isKeyOperationInProgress,
+            onUpdateKey: startEditingKey,
+            onEditBudget: startEditingBudget,
+            onRemoveKey: onRemoveKey
+        )
     }
 
     private var keyEditor: some View {
@@ -1197,6 +1177,136 @@ private struct APIAccountSection: View {
         guard let value = parsedDraftBudget else { return }
         onSaveBudget(value)
         cancelEditing()
+    }
+}
+
+private struct APIKeyOptionsButton: View {
+    let monthlyBudgetUSD: Double?
+    let isDisabled: Bool
+    let onUpdateKey: () -> Void
+    let onEditBudget: () -> Void
+    let onRemoveKey: () -> Void
+
+    @Environment(\.popoverPalette) private var palette
+    @State private var anchorView: NSView?
+    @State private var isMenuOpen = false
+    @State private var menuTarget = APIKeyOptionsMenuTarget()
+
+    var body: some View {
+        Button {
+            openMenu()
+        } label: {
+            Image(systemName: "ellipsis.circle")
+                .font(.system(size: 13, weight: .semibold))
+                .frame(width: 22, height: 22)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(
+            APIKeyOptionsButtonStyle(
+                palette: palette,
+                isMenuOpen: isMenuOpen
+            )
+        )
+        .background(APIKeyOptionsAnchorView(anchorView: $anchorView))
+        .frame(width: 22, height: 22)
+        .disabled(isDisabled)
+        .help("API key options")
+    }
+
+    private func openMenu() {
+        guard isDisabled == false, let anchorView else { return }
+
+        menuTarget.onUpdateKey = onUpdateKey
+        menuTarget.onEditBudget = onEditBudget
+        menuTarget.onRemoveKey = onRemoveKey
+        menuTarget.onMenuClose = {
+            isMenuOpen = false
+        }
+
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        menu.delegate = menuTarget
+        menu.addItem(menuItem("Update Key…", action: #selector(APIKeyOptionsMenuTarget.updateKey(_:))))
+        menu.addItem(menuItem(monthlyBudgetUSD == nil ? "Set Monthly Budget…" : "Edit Monthly Budget…", action: #selector(APIKeyOptionsMenuTarget.editBudget(_:))))
+        menu.addItem(.separator())
+        menu.addItem(menuItem("Remove Key", action: #selector(APIKeyOptionsMenuTarget.removeKey(_:))))
+
+        isMenuOpen = true
+        DispatchQueue.main.async {
+            guard anchorView.window != nil else {
+                isMenuOpen = false
+                return
+            }
+            let location = NSPoint(x: anchorView.bounds.minX, y: anchorView.bounds.minY - 3)
+            if menu.popUp(positioning: nil, at: location, in: anchorView) == false {
+                isMenuOpen = false
+            }
+        }
+    }
+
+    private func menuItem(_ title: String, action: Selector) -> NSMenuItem {
+        let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
+        item.target = menuTarget
+        item.isEnabled = true
+        return item
+    }
+}
+
+private struct APIKeyOptionsButtonStyle: ButtonStyle {
+    let palette: PopoverPalette
+    let isMenuOpen: Bool
+
+    func makeBody(configuration: Configuration) -> some View {
+        let isActive = configuration.isPressed || isMenuOpen
+
+        configuration.label
+            .foregroundStyle(isActive ? palette.pressedControlIcon : palette.controlIcon)
+            .animation(.easeOut(duration: 0.08), value: configuration.isPressed)
+            .animation(.easeOut(duration: 0.08), value: isMenuOpen)
+    }
+}
+
+private struct APIKeyOptionsAnchorView: NSViewRepresentable {
+    @Binding var anchorView: NSView?
+
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        DispatchQueue.main.async {
+            anchorView = view
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        DispatchQueue.main.async {
+            if anchorView !== nsView {
+                anchorView = nsView
+            }
+        }
+    }
+}
+
+private final class APIKeyOptionsMenuTarget: NSObject, NSMenuDelegate {
+    var onUpdateKey: (() -> Void)?
+    var onEditBudget: (() -> Void)?
+    var onRemoveKey: (() -> Void)?
+    var onMenuClose: (() -> Void)?
+
+    @objc func updateKey(_ sender: NSMenuItem) {
+        onUpdateKey?()
+    }
+
+    @objc func editBudget(_ sender: NSMenuItem) {
+        onEditBudget?()
+    }
+
+    @objc func removeKey(_ sender: NSMenuItem) {
+        onRemoveKey?()
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        onMenuClose?()
+        onMenuClose = nil
     }
 }
 
