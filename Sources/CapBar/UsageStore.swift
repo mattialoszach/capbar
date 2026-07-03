@@ -26,6 +26,10 @@ final class UsageStore: ObservableObject {
         snapshots.first { $0.provider == settings.menuBarProvider } ?? .loading(provider: settings.menuBarProvider)
     }
 
+    var menuBarAPISnapshot: APIAccountSnapshot {
+        apiSnapshot(for: settings.menuBarProvider)
+    }
+
     func snapshot(for provider: ProviderID) -> ProviderSnapshot {
         snapshots.first { $0.provider == provider } ?? .loading(provider: provider)
     }
@@ -118,6 +122,11 @@ final class UsageStore: ObservableObject {
 
     func setMenuBarProvider(_ provider: ProviderID) {
         settings.menuBarProvider = provider
+        persistSettings()
+    }
+
+    func setMenuBarDisplayMode(_ mode: MenuBarDisplayMode) {
+        settings.menuBarDisplayMode = mode
         persistSettings()
     }
 

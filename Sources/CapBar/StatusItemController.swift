@@ -13,8 +13,16 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
 
     init(store: UsageStore) {
         self.store = store
-        statusItem = NSStatusBar.system.statusItem(withLength: 108)
-        hostingView = NSHostingView(rootView: StatusBarLabel(snapshot: store.menuBarSnapshot))
+        statusItem = NSStatusBar.system.statusItem(
+            withLength: Self.statusItemLength(for: store.settings.menuBarDisplayMode)
+        )
+        hostingView = NSHostingView(
+            rootView: StatusBarLabel(
+                subscriptionSnapshot: store.menuBarSnapshot,
+                apiSnapshot: store.menuBarAPISnapshot,
+                displayMode: store.settings.menuBarDisplayMode
+            )
+        )
         super.init()
 
         configureStatusButton()
@@ -59,10 +67,10 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
 
     private func bindStore() {
         store.$snapshots
-            .combineLatest(store.$settings)
+            .combineLatest(store.$apiSnapshots, store.$settings)
             .receive(on: RunLoop.main)
-            .sink { [weak self] _, _ in
-                self?.hostingView.rootView = StatusBarLabel(snapshot: self?.store.menuBarSnapshot ?? .loading(provider: .codex))
+            .sink { [weak self] _ in
+                self?.updateStatusBarLabel()
             }
             .store(in: &cancellables)
 
@@ -81,6 +89,22 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
                 self?.closePopoverIfShown()
             }
             .store(in: &cancellables)
+    }
+
+    private func updateStatusBarLabel() {
+        statusItem.length = Self.statusItemLength(for: store.settings.menuBarDisplayMode)
+        hostingView.rootView = StatusBarLabel(
+            subscriptionSnapshot: store.menuBarSnapshot,
+            apiSnapshot: store.menuBarAPISnapshot,
+            displayMode: store.settings.menuBarDisplayMode
+        )
+    }
+
+    private static func statusItemLength(for displayMode: MenuBarDisplayMode) -> CGFloat {
+        switch displayMode {
+        case .subscription: 108
+        case .api: 86
+        }
     }
 
     @objc private func togglePopover() {

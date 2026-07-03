@@ -179,6 +179,30 @@ final class APIAccountTests: XCTestCase {
         XCTAssertEqual(summary.todayText, "$0.00")
     }
 
+    func testCompactUSDUsesFourSignificantDigitsForLargeValues() {
+        XCTAssertEqual(Formatters.compactUSD(999.99), "$999.99")
+        XCTAssertEqual(Formatters.compactUSD(1_000), "$1.000k")
+        XCTAssertEqual(Formatters.compactUSD(10_000), "$10.00k")
+        XCTAssertEqual(Formatters.compactUSD(100_000), "$100.0k")
+        XCTAssertEqual(Formatters.compactUSD(1_234_567), "$1.235M")
+        XCTAssertEqual(Formatters.compactUSD(1_000_000_000), "$1.000B")
+    }
+
+    func testMockSpendSummaryReadsEnvironmentValues() throws {
+        let summary = try XCTUnwrap(
+            APIAccountReader.mockSpendSummary(
+                environment: [
+                    "CAPBAR_MOCK_API_TODAY_USD": "1_000",
+                    "CAPBAR_MOCK_API_MONTH_USD": "$1,234,567"
+                ]
+            )
+        )
+
+        XCTAssertEqual(try XCTUnwrap(summary.todayUSD), 1_000, accuracy: 0.0001)
+        XCTAssertEqual(try XCTUnwrap(summary.monthToDateUSD), 1_234_567, accuracy: 0.0001)
+        XCTAssertNil(APIAccountReader.mockSpendSummary(environment: [:]))
+    }
+
     func testOpenAICreditGrantsParsing() {
         let json = Data(
             #"{"object":"credit_summary","total_granted":120.0,"total_used":104.5,"total_available":15.5,"grants":{"data":[]}}"#.utf8

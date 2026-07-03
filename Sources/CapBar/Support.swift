@@ -98,9 +98,53 @@ enum Formatters {
         return formatter.string(from: NSNumber(value: value)) ?? String(format: "$%.2f", value)
     }
 
+    static func compactUSD(_ value: Double) -> String {
+        let absolute = abs(value)
+        guard absolute >= 1_000 else {
+            return usd(value)
+        }
+
+        let sign = value < 0 ? "-" : ""
+        let units: [(divisor: Double, suffix: String)] = [
+            (1_000, "k"),
+            (1_000_000, "M"),
+            (1_000_000_000, "B"),
+            (1_000_000_000_000, "T")
+        ]
+        var unitIndex = units.lastIndex { absolute >= $0.divisor } ?? 0
+        var formatted = compactNumber(absolute / units[unitIndex].divisor)
+
+        if formatted.rounded >= 1_000, unitIndex < units.count - 1 {
+            unitIndex += 1
+            formatted = compactNumber(absolute / units[unitIndex].divisor)
+        }
+
+        let number = String(
+            format: "%.\(formatted.fractionDigits)f",
+            locale: Locale(identifier: "en_US_POSIX"),
+            formatted.rounded
+        )
+        return "\(sign)$\(number)\(units[unitIndex].suffix)"
+    }
+
     static func plainNumber(_ value: Double) -> String {
         let formatted = String(format: "%.2f", value)
         return formatted.hasSuffix(".00") ? String(formatted.dropLast(3)) : formatted
+    }
+
+    private static func compactNumber(_ value: Double) -> (rounded: Double, fractionDigits: Int) {
+        let fractionDigits: Int
+        switch value {
+        case ..<10:
+            fractionDigits = 3
+        case ..<100:
+            fractionDigits = 2
+        default:
+            fractionDigits = 1
+        }
+
+        let multiplier = pow(10, Double(fractionDigits))
+        return ((value * multiplier).rounded() / multiplier, fractionDigits)
     }
 
     private static func trimmed(_ value: Double) -> String {

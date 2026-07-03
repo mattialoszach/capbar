@@ -138,8 +138,8 @@ swift run CapBar
 - Codex and Claude Code provider selector.
 - Compact menu bar display with:
   - provider icon
-  - current-session remaining percentage
-  - weekly remaining percentage
+  - current-session and weekly subscription usage by default
+  - optional today and month-to-date API spend
 - Popover with:
   - account login status
   - current-session usage limit
@@ -153,7 +153,7 @@ swift run CapBar
 - Optional provider rotation: off, 5 seconds, 10 seconds, 20 seconds, or 30 seconds.
 - Optional low-usage warning colors for remaining limits.
 - Optional API console spend tracking per provider (see below).
-- Remembers the selected provider, rotation interval, refresh interval, and low-usage color preference in `UserDefaults`.
+- Remembers the selected provider, menu bar data mode, rotation interval, refresh interval, and low-usage color preference in `UserDefaults`.
 - Local-only credential and session reading.
 
 ## API Console Spend (Optional)

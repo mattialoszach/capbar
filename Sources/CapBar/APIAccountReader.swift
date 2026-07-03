@@ -11,6 +11,10 @@ struct APIAccountReader {
 
     func read(force: Bool = false) async -> APIAccountSnapshot {
         let now = Date()
+        if let summary = Self.mockSpendSummary(environment: ProcessInfo.processInfo.environment) {
+            return APIAccountSnapshot(provider: provider, status: .spend(summary), fetchedAt: now)
+        }
+
         guard let apiKey = APIKeyStore.key(for: provider) else {
             clearCache()
             return .noKey(provider: provider)
@@ -94,6 +98,16 @@ struct APIAccountReader {
         calendar.timeZone = TimeZone(identifier: "UTC") ?? .current
         let dayStart = calendar.startOfDay(for: date)
         return calendar.date(byAdding: .day, value: 1, to: dayStart) ?? date
+    }
+
+    static func mockSpendSummary(environment: [String: String]) -> APISpendSummary? {
+        guard let monthToDateUSD = mockUSDValue("CAPBAR_MOCK_API_MONTH_USD", in: environment) else {
+            return nil
+        }
+        return APISpendSummary(
+            monthToDateUSD: monthToDateUSD,
+            todayUSD: mockUSDValue("CAPBAR_MOCK_API_TODAY_USD", in: environment) ?? monthToDateUSD
+        )
     }
 
     private func snapshot(from state: APISpendCacheState, now: Date) -> APIAccountSnapshot {
@@ -326,6 +340,19 @@ struct APIAccountReader {
 
     private func fingerprint(for apiKey: String) -> String {
         SHA256.hash(data: Data(apiKey.utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func mockUSDValue(_ key: String, in environment: [String: String]) -> Double? {
+        guard let raw = environment[key]?.trimmingCharacters(in: .whitespacesAndNewlines),
+              raw.isEmpty == false else {
+            return nil
+        }
+        let normalized = raw
+            .replacingOccurrences(of: "$", with: "")
+            .replacingOccurrences(of: "_", with: "")
+            .replacingOccurrences(of: ",", with: "")
+        guard let value = Double(normalized), value >= 0 else { return nil }
+        return value
     }
 
     private func readCacheState() -> APISpendCacheState? {

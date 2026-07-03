@@ -99,6 +99,12 @@ struct PopoverView: View {
                 .overlay(palette.divider)
                 .padding(.leading, 40)
 
+            MenuBarDisplayPickerRow(selection: menuBarDisplayModeBinding)
+
+            Divider()
+                .overlay(palette.divider)
+                .padding(.leading, 40)
+
             RefreshIntervalPickerRow(selection: refreshIntervalBinding)
 
             Divider()
@@ -237,6 +243,13 @@ struct PopoverView: View {
         Binding(
             get: { store.settings.providerRotationInterval },
             set: { store.setProviderRotationInterval($0) }
+        )
+    }
+
+    private var menuBarDisplayModeBinding: Binding<MenuBarDisplayMode> {
+        Binding(
+            get: { store.settings.menuBarDisplayMode },
+            set: { store.setMenuBarDisplayMode($0) }
         )
     }
 
@@ -486,6 +499,35 @@ private struct ProviderRotationPickerRow: View {
             .pickerStyle(.menu)
             .controlSize(.small)
             .frame(width: 96)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 12)
+    }
+}
+
+private struct MenuBarDisplayPickerRow: View {
+    @Binding var selection: MenuBarDisplayMode
+    @Environment(\.popoverPalette) private var palette
+
+    var body: some View {
+        HStack(spacing: 10) {
+            SettingsIcon(systemName: "menubar.rectangle")
+
+            Text("Menu bar data")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(palette.primaryText)
+
+            Spacer()
+
+            Picker("", selection: $selection) {
+                ForEach(MenuBarDisplayMode.allCases) { mode in
+                    Text(mode.title).tag(mode)
+                }
+            }
+            .labelsHidden()
+            .pickerStyle(.menu)
+            .controlSize(.small)
+            .frame(width: 118)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 12)

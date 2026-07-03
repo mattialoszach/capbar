@@ -44,6 +44,7 @@ enum ProviderID: String, CaseIterable, Codable, Identifiable, Sendable {
 
 struct UsageSettings: Codable, Equatable {
     var menuBarProvider: ProviderID
+    var menuBarDisplayMode: MenuBarDisplayMode
     var providerRotationInterval: ProviderRotationInterval
     var refreshInterval: RefreshInterval
     var lowUsageColorsEnabled: Bool
@@ -54,6 +55,7 @@ struct UsageSettings: Codable, Equatable {
 
     init(
         menuBarProvider: ProviderID,
+        menuBarDisplayMode: MenuBarDisplayMode = .subscription,
         providerRotationInterval: ProviderRotationInterval = .off,
         refreshInterval: RefreshInterval = .oneMinute,
         lowUsageColorsEnabled: Bool = true,
@@ -61,6 +63,7 @@ struct UsageSettings: Codable, Equatable {
         apiMonthlyBudgetsUSD: [String: Double] = [:]
     ) {
         self.menuBarProvider = menuBarProvider
+        self.menuBarDisplayMode = menuBarDisplayMode
         self.providerRotationInterval = providerRotationInterval
         self.refreshInterval = refreshInterval
         self.lowUsageColorsEnabled = lowUsageColorsEnabled
@@ -74,6 +77,7 @@ struct UsageSettings: Codable, Equatable {
 
     private enum CodingKeys: String, CodingKey {
         case menuBarProvider
+        case menuBarDisplayMode
         case providerRotationInterval
         case refreshInterval
         case lowUsageColorsEnabled
@@ -84,11 +88,26 @@ struct UsageSettings: Codable, Equatable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         menuBarProvider = try container.decodeIfPresent(ProviderID.self, forKey: .menuBarProvider) ?? .codex
+        menuBarDisplayMode = try container.decodeIfPresent(MenuBarDisplayMode.self, forKey: .menuBarDisplayMode) ?? .subscription
         providerRotationInterval = try container.decodeIfPresent(ProviderRotationInterval.self, forKey: .providerRotationInterval) ?? .off
         refreshInterval = try container.decodeIfPresent(RefreshInterval.self, forKey: .refreshInterval) ?? .oneMinute
         lowUsageColorsEnabled = try container.decodeIfPresent(Bool.self, forKey: .lowUsageColorsEnabled) ?? true
         apiSectionVisible = try container.decodeIfPresent(Bool.self, forKey: .apiSectionVisible) ?? true
         apiMonthlyBudgetsUSD = try container.decodeIfPresent([String: Double].self, forKey: .apiMonthlyBudgetsUSD) ?? [:]
+    }
+}
+
+enum MenuBarDisplayMode: String, CaseIterable, Codable, Identifiable, Sendable {
+    case subscription
+    case api
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .subscription: "Subscription"
+        case .api: "API Data"
+        }
     }
 }
 

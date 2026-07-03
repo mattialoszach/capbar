@@ -10,7 +10,18 @@ final class ModelsTests: XCTestCase {
         let settings = try JSONDecoder().decode(UsageSettings.self, from: data)
 
         XCTAssertEqual(settings.providerRotationInterval, .off)
+        XCTAssertEqual(settings.menuBarDisplayMode, .subscription)
         XCTAssertTrue(settings.apiSectionVisible)
+    }
+
+    func testMenuBarDisplayModeRoundTrips() throws {
+        var settings = UsageSettings.default
+        settings.menuBarDisplayMode = .api
+
+        let encoded = try JSONEncoder().encode(settings)
+        let decoded = try JSONDecoder().decode(UsageSettings.self, from: encoded)
+
+        XCTAssertEqual(decoded.menuBarDisplayMode, .api)
     }
 
     func testProviderRotationIntervals() {

@@ -1,20 +1,59 @@
 import SwiftUI
 
 struct StatusBarLabel: View {
-    let snapshot: ProviderSnapshot
+    let subscriptionSnapshot: ProviderSnapshot
+    let apiSnapshot: APIAccountSnapshot
+    let displayMode: MenuBarDisplayMode
 
     var body: some View {
-        HStack(spacing: 9) {
-            ProviderLogoView(provider: snapshot.provider, size: 16)
+        HStack(spacing: 7) {
+            ProviderLogoView(provider: subscriptionSnapshot.provider, size: 16)
 
             VStack(spacing: 2) {
-                StatusLimitStrip(symbol: "clock", metric: snapshot.current)
-                StatusLimitStrip(symbol: "calendar", metric: snapshot.weekly)
+                switch displayMode {
+                case .subscription:
+                    StatusLimitStrip(symbol: "clock", metric: subscriptionSnapshot.current)
+                    StatusLimitStrip(symbol: "calendar", metric: subscriptionSnapshot.weekly)
+                case .api:
+                    StatusAPISpendStrip(symbol: "clock", text: apiTodayText)
+                    StatusAPISpendStrip(symbol: "calendar", text: apiMonthText)
+                }
             }
         }
-        .frame(width: 100, height: 22)
+        .frame(width: contentWidth, height: 22, alignment: .leading)
         .contentShape(Rectangle())
-        .accessibilityLabel("\(snapshot.provider.displayName) usage limits")
+        .accessibilityLabel(accessibilityText)
+    }
+
+    private var contentWidth: CGFloat {
+        switch displayMode {
+        case .subscription: 100
+        case .api: 82
+        }
+    }
+
+    private var apiSpendSummary: APISpendSummary? {
+        guard case let .spend(summary) = apiSnapshot.status else { return nil }
+        return summary
+    }
+
+    private var apiTodayText: String {
+        guard let summary = apiSpendSummary, summary.hasSpend else { return "--" }
+        return Formatters.compactUSD(summary.todayUSD ?? 0)
+    }
+
+    private var apiMonthText: String {
+        guard let summary = apiSpendSummary, summary.hasSpend else { return "--" }
+        return Formatters.compactUSD(summary.monthToDateUSD ?? 0)
+    }
+
+    private var accessibilityText: String {
+        switch displayMode {
+        case .subscription:
+            return "\(subscriptionSnapshot.provider.displayName) usage limits"
+        case .api:
+            return "\(subscriptionSnapshot.provider.displayName) API spend, today \(apiTodayText), month \(apiMonthText)"
+        }
     }
 }
 
@@ -41,6 +80,30 @@ private struct StatusLimitStrip: View {
                 .frame(width: 26, alignment: .leading)
                 .lineLimit(1)
                 .minimumScaleFactor(0.75)
+        }
+        .frame(height: 9)
+    }
+}
+
+private struct StatusAPISpendStrip: View {
+    let symbol: String
+    let text: String
+
+    var body: some View {
+        HStack(spacing: 0) {
+            Image(systemName: symbol)
+                .font(.system(size: 7, weight: .semibold))
+                .foregroundStyle(.white.opacity(0.72))
+                .frame(width: 8)
+
+            Text(text)
+                .font(.system(size: 9, weight: .semibold, design: .rounded))
+                .monospacedDigit()
+                .foregroundStyle(.white.opacity(0.84))
+                .padding(.leading, 5)
+                .frame(width: 46, alignment: .leading)
+                .lineLimit(1)
+                .minimumScaleFactor(0.65)
         }
         .frame(height: 9)
     }
