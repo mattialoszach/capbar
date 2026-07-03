@@ -88,6 +88,21 @@ enum Formatters {
         "\(Int(value.rounded()))%"
     }
 
+    static func usd(_ value: Double) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.currencyCode = "USD"
+        formatter.locale = Locale(identifier: "en_US")
+        formatter.minimumFractionDigits = 2
+        formatter.maximumFractionDigits = 2
+        return formatter.string(from: NSNumber(value: value)) ?? String(format: "$%.2f", value)
+    }
+
+    static func plainNumber(_ value: Double) -> String {
+        let formatted = String(format: "%.2f", value)
+        return formatted.hasSuffix(".00") ? String(formatted.dropLast(3)) : formatted
+    }
+
     private static func trimmed(_ value: Double) -> String {
         let formatted = String(format: "%.1f", value)
         return formatted.hasSuffix(".0") ? String(formatted.dropLast(2)) : formatted

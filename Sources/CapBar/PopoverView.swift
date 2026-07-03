@@ -46,7 +46,7 @@ struct PopoverView: View {
             snapshot: selectedSnapshot,
             isRefreshing: store.isRefreshing,
             onLogin: { store.runCLILogin(for: selectedSnapshot.provider) },
-            onRefresh: { store.refresh() }
+            onRefresh: { store.refresh(force: true) }
         )
 
         VStack(spacing: 0) {
@@ -66,6 +66,17 @@ struct PopoverView: View {
         .overlay(
             RoundedRectangle(cornerRadius: 8)
                 .stroke(palette.panelStroke, lineWidth: 1)
+        )
+
+        APIAccountSection(
+            snapshot: store.apiSnapshot(for: selectedSnapshot.provider),
+            provider: selectedSnapshot.provider,
+            isCheckingKey: store.isCheckingAPIKey(for: selectedSnapshot.provider),
+            lowUsageColorsEnabled: store.settings.lowUsageColorsEnabled,
+            monthlyBudgetUSD: store.settings.apiMonthlyBudgetUSD(for: selectedSnapshot.provider),
+            onSaveKey: { store.setAPIKey($0, for: selectedSnapshot.provider) },
+            onRemoveKey: { store.clearAPIKey(for: selectedSnapshot.provider) },
+            onSaveBudget: { store.setAPIMonthlyBudget($0, for: selectedSnapshot.provider) }
         )
 
         Text(selectedSnapshot.sourceDescription)
@@ -103,7 +114,7 @@ struct PopoverView: View {
 
             SettingsRefreshRow(
                 isRefreshing: store.isRefreshing,
-                onRefresh: { store.refresh() }
+                onRefresh: { store.refresh(force: true) }
             )
         }
         .background(palette.panelBackground, in: RoundedRectangle(cornerRadius: 8))
@@ -356,6 +367,10 @@ private struct ProviderSelector: View {
     @Environment(\.popoverPalette) private var palette
     @Namespace private var selectionNamespace
 
+    private let cellHeight: CGFloat = 28
+    private let controlPadding: CGFloat = 3
+    private let selectedCornerRadius: CGFloat = 6
+
     var body: some View {
         HStack(spacing: 3) {
             ForEach(ProviderID.allCases) { provider in
@@ -367,10 +382,10 @@ private struct ProviderSelector: View {
                 } label: {
                     ZStack {
                         if selection == provider {
-                            RoundedRectangle(cornerRadius: 6)
+                            RoundedRectangle(cornerRadius: selectedCornerRadius, style: .continuous)
                                 .fill(palette.selectedProviderBackground(for: provider))
                                 .overlay(
-                                    RoundedRectangle(cornerRadius: 6)
+                                    RoundedRectangle(cornerRadius: selectedCornerRadius, style: .continuous)
                                         .stroke(palette.selectedProviderStroke(for: provider), lineWidth: 1)
                                 )
                                 .shadow(color: palette.selectedProviderShadow(for: provider), radius: 5, y: 1)
@@ -388,16 +403,23 @@ private struct ProviderSelector: View {
                                 .foregroundStyle(selection == provider ? palette.selectedProviderText : palette.secondaryText)
                                 .lineLimit(1)
                         }
-                        .frame(maxWidth: .infinity, minHeight: 28)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: cellHeight)
                     }
-                    .contentShape(RoundedRectangle(cornerRadius: 6))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: cellHeight)
+                    .contentShape(RoundedRectangle(cornerRadius: selectedCornerRadius, style: .continuous))
                 }
                 .buttonStyle(.plain)
+                .frame(maxWidth: .infinity)
+                .frame(height: cellHeight)
                 .help("Show \(provider.displayName) in the menu bar")
                 .accessibilityLabel(provider.displayName)
             }
         }
-        .padding(3)
+        .frame(height: cellHeight)
+        .padding(controlPadding)
+        .frame(height: cellHeight + controlPadding * 2)
         .background(palette.panelBackground, in: RoundedRectangle(cornerRadius: 8))
         .overlay(
             RoundedRectangle(cornerRadius: 8)
@@ -659,12 +681,12 @@ private struct LimitRow: View {
                 .frame(height: 6)
 
             Text(metric?.remainingText ?? "Unavailable")
-                .font(.system(size: 12, weight: .semibold))
+                .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(tone.remainingTextColor(in: palette))
                 .monospacedDigit()
-                .frame(width: 70, alignment: .trailing)
+                .frame(width: 64, alignment: .trailing)
                 .lineLimit(1)
-                .minimumScaleFactor(0.78)
+                .minimumScaleFactor(0.82)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 13)
@@ -756,6 +778,409 @@ private enum UsageTone {
         default:
             palette.neutralProgressTrack
         }
+    }
+}
+
+private struct APIAccountSection: View {
+    let snapshot: APIAccountSnapshot
+    let provider: ProviderID
+    let isCheckingKey: Bool
+    let lowUsageColorsEnabled: Bool
+    let monthlyBudgetUSD: Double?
+    let onSaveKey: (String) -> Void
+    let onRemoveKey: () -> Void
+    let onSaveBudget: (Double?) -> Void
+
+    private enum EditingMode {
+        case none
+        case key
+        case budget
+    }
+
+    @State private var editingMode: EditingMode = .none
+    @State private var draftKey = ""
+    @State private var draftBudget = ""
+    @State private var isMenuHovering = false
+    @Environment(\.popoverPalette) private var palette
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            switch editingMode {
+            case .none:
+                statusRow
+                if let metric = limitMetric {
+                    Divider()
+                        .overlay(palette.divider)
+                        .padding(.leading, 2)
+                    LimitRow(metric: metric, lowUsageColorsEnabled: lowUsageColorsEnabled)
+                }
+            case .key:
+                keyEditor
+            case .budget:
+                budgetEditor
+            }
+        }
+        .background(palette.panelBackground, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(palette.panelStroke, lineWidth: 1)
+        )
+        .onChange(of: provider) { _ in
+            cancelEditing()
+            isMenuHovering = false
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSPopover.didCloseNotification)) { _ in
+            cancelEditing()
+            isMenuHovering = false
+        }
+    }
+
+    private var limitMetric: LimitMetric? {
+        guard case let .spend(summary) = snapshot.status else { return nil }
+
+        if let spent = summary.monthToDateUSD {
+            let limit = monthlyBudgetUSD ?? summary.monthlyLimitUSD
+            if let limit, limit > 0 {
+                return LimitMetric(
+                    title: "Monthly limit",
+                    detail: "\(Formatters.usd(spent)) of \(Formatters.usd(limit))",
+                    usedPercent: min(100, max(0, spent / limit * 100)),
+                    resetDate: nil
+                )
+            }
+        }
+
+        if let remaining = summary.creditsRemainingUSD,
+           let granted = summary.creditsGrantedUSD, granted > 0 {
+            let used = max(0, granted - remaining)
+            return LimitMetric(
+                title: "API credits",
+                detail: "\(Formatters.usd(used)) of \(Formatters.usd(granted))",
+                usedPercent: min(100, max(0, used / granted * 100)),
+                resetDate: nil
+            )
+        }
+
+        return nil
+    }
+
+    private var statusRow: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "key")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(palette.controlIcon)
+                .frame(width: 18, height: 18)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text("\(provider.platformName) API")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(palette.primaryText)
+                    .lineLimit(1)
+                Text(subtitleText)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(subtitleColor)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .help(subtitleHelpText ?? subtitleText)
+            }
+
+            Spacer()
+
+            trailingContent
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 12)
+    }
+
+    @ViewBuilder
+    private var trailingContent: some View {
+        if isCheckingKey {
+            checkingKeyIndicator
+        } else {
+            switch snapshot.status {
+            case .noKey:
+                Button {
+                    startEditingKey()
+                } label: {
+                    Text("Add Key")
+                        .font(.system(size: 12, weight: .semibold))
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .help("Add a \(provider.platformName) admin API key")
+            case let .spend(summary):
+                HStack(spacing: 8) {
+                    VStack(alignment: .trailing, spacing: 1) {
+                        Text(summary.hasSpend ? summary.monthToDateText : summary.creditsRemainingText)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(palette.primaryText)
+                            .monospacedDigit()
+                        if let detail = trailingDetailText(for: summary) {
+                            Text(detail)
+                                .font(.system(size: 10.5, weight: .medium))
+                                .foregroundStyle(palette.secondaryText)
+                                .monospacedDigit()
+                                .lineLimit(1)
+                        }
+                    }
+                    keyMenu
+                }
+            case .invalidKey, .rateLimited, .unavailable:
+                keyMenu
+            }
+        }
+    }
+
+    private var checkingKeyIndicator: some View {
+        HStack(spacing: 6) {
+            ProgressView()
+                .controlSize(.small)
+                .scaleEffect(0.58)
+                .frame(width: 12, height: 12)
+            Text("Checking")
+                .font(.system(size: 12, weight: .semibold))
+                .foregroundStyle(palette.activeStatus)
+                .lineLimit(1)
+        }
+        .fixedSize()
+        .help("Checking \(provider.platformName) API key")
+    }
+
+    private var keyMenu: some View {
+        Menu {
+            Button("Update Key…") {
+                startEditingKey()
+            }
+            Button(monthlyBudgetUSD == nil ? "Set Monthly Budget…" : "Edit Monthly Budget…") {
+                startEditingBudget()
+            }
+            Divider()
+            Button("Remove Key", role: .destructive) {
+                onRemoveKey()
+            }
+        } label: {
+            Image(systemName: "ellipsis.circle")
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(palette.controlIcon)
+                .frame(width: 22, height: 22)
+                .background(
+                    Circle()
+                        .fill(isMenuHovering ? palette.iconBackground : Color.clear)
+                )
+                .contentShape(Circle())
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .frame(width: 22, height: 22)
+        .onHover { isMenuHovering = $0 }
+        .disabled(isCheckingKey)
+        .help("API key options")
+    }
+
+    private var keyEditor: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                Image(systemName: "key")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(palette.controlIcon)
+                    .frame(width: 18, height: 18)
+                Text("\(provider.platformName) admin API key")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(palette.primaryText)
+                Spacer()
+            }
+
+            SecureField(provider.adminKeyHint, text: $draftKey)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 12))
+                .onSubmit(saveDraftKey)
+                .disabled(isCheckingKey)
+
+            HStack {
+                Text("Stored locally for CapBar, only sent to \(provider.platformName)")
+                    .font(.system(size: 10.5, weight: .medium))
+                    .foregroundStyle(palette.tertiaryText)
+                    .lineLimit(2)
+
+                Spacer()
+
+                Button("Cancel") {
+                    cancelEditing()
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+                .disabled(isCheckingKey)
+
+                Button("Save") {
+                    saveDraftKey()
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .disabled(isCheckingKey || draftKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 12)
+    }
+
+    private var subtitleText: String {
+        if isCheckingKey {
+            return "Checking API key"
+        }
+
+        switch snapshot.status {
+        case .noKey:
+            return "Track API spend"
+        case let .spend(summary):
+            if summary.hasSpend, summary.hasCredits {
+                return "Spend this month"
+            } else if summary.hasSpend {
+                return "Spend this month"
+            }
+            return "API credits remaining"
+        case let .invalidKey(detail):
+            return detail ?? "API key rejected"
+        case .rateLimited:
+            return "Rate limited, retrying later"
+        case .unavailable:
+            return "Spend unavailable"
+        }
+    }
+
+    private var subtitleHelpText: String? {
+        if case .spend = snapshot.status, let fetchedAt = snapshot.fetchedAt {
+            return "Updated \(Formatters.relativeString(for: fetchedAt))"
+        }
+
+        guard case let .invalidKey(detail) = snapshot.status else { return nil }
+        let reason = detail.map { "\($0)\n\n" } ?? ""
+        let hint: String
+        switch provider {
+        case .claude:
+            hint = "Anthropic only exposes billing data to organization admin keys (\(provider.adminKeyHint)). Regular API keys cannot read it."
+        case .codex:
+            hint = "Use an organization admin key (\(provider.adminKeyHint)) for spend, or a legacy user API key for the credit balance. Project keys (sk-proj-...) cannot read billing data."
+        }
+        return reason + hint
+    }
+
+    private func trailingDetailText(for summary: APISpendSummary) -> String? {
+        if summary.hasSpend {
+            if let today = summary.todayUSD {
+                return "Today \(Formatters.usd(today))"
+            }
+            return nil
+        }
+        if summary.creditsGrantedUSD != nil {
+            return "of \(summary.creditsGrantedText)"
+        }
+        return "credits left"
+    }
+
+    private var subtitleColor: Color {
+        if isCheckingKey {
+            return palette.activeStatus
+        }
+
+        switch snapshot.status {
+        case .invalidKey:
+            return palette.dangerText
+        case .rateLimited, .unavailable:
+            return palette.warningText
+        default:
+            return palette.secondaryText
+        }
+    }
+
+    private var budgetEditor: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 10) {
+                Image(systemName: "gauge.with.needle")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(palette.controlIcon)
+                    .frame(width: 18, height: 18)
+                Text("\(provider.platformName) monthly budget")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(palette.primaryText)
+                Spacer()
+            }
+
+            TextField("e.g. 100", text: $draftBudget)
+                .textFieldStyle(.roundedBorder)
+                .font(.system(size: 12))
+                .onSubmit(saveDraftBudget)
+
+            HStack {
+                Text("USD per calendar month, drawn as a limit bar")
+                    .font(.system(size: 10.5, weight: .medium))
+                    .foregroundStyle(palette.tertiaryText)
+                    .lineLimit(2)
+
+                Spacer()
+
+                if monthlyBudgetUSD != nil {
+                    Button("Clear") {
+                        onSaveBudget(nil)
+                        cancelEditing()
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                }
+
+                Button("Cancel") {
+                    cancelEditing()
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+
+                Button("Save") {
+                    saveDraftBudget()
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+                .disabled(parsedDraftBudget == nil)
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 12)
+    }
+
+    private var parsedDraftBudget: Double? {
+        let normalized = draftBudget
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: "$", with: "")
+            .replacingOccurrences(of: ",", with: ".")
+        guard let value = Double(normalized), value > 0 else { return nil }
+        return value
+    }
+
+    private func startEditingKey() {
+        draftKey = ""
+        editingMode = .key
+    }
+
+    private func startEditingBudget() {
+        draftBudget = monthlyBudgetUSD.map { Formatters.plainNumber($0) } ?? ""
+        editingMode = .budget
+    }
+
+    private func cancelEditing() {
+        editingMode = .none
+        draftKey = ""
+        draftBudget = ""
+    }
+
+    private func saveDraftKey() {
+        let trimmed = draftKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.isEmpty == false, isCheckingKey == false else { return }
+        onSaveKey(trimmed)
+        cancelEditing()
+    }
+
+    private func saveDraftBudget() {
+        guard let value = parsedDraftBudget else { return }
+        onSaveBudget(value)
+        cancelEditing()
     }
 }
 

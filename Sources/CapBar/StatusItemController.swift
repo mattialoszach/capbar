@@ -48,12 +48,13 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         popover.behavior = .transient
         popover.animates = true
         popover.delegate = self
-        popover.contentSize = NSSize(width: 360, height: 300)
-        popover.contentViewController = NSHostingController(
+        let hostingController = NSHostingController(
             rootView: PopoverView(store: store, onQuit: { [weak self] in
                 self?.quitApplication()
             })
         )
+        hostingController.sizingOptions = [.preferredContentSize]
+        popover.contentViewController = hostingController
     }
 
     private func bindStore() {

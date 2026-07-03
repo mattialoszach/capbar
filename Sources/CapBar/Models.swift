@@ -47,6 +47,7 @@ struct UsageSettings: Codable, Equatable {
     var providerRotationInterval: ProviderRotationInterval
     var refreshInterval: RefreshInterval
     var lowUsageColorsEnabled: Bool
+    var apiMonthlyBudgetsUSD: [String: Double]
 
     static let `default` = UsageSettings(menuBarProvider: .codex)
 
@@ -54,12 +55,18 @@ struct UsageSettings: Codable, Equatable {
         menuBarProvider: ProviderID,
         providerRotationInterval: ProviderRotationInterval = .off,
         refreshInterval: RefreshInterval = .oneMinute,
-        lowUsageColorsEnabled: Bool = true
+        lowUsageColorsEnabled: Bool = true,
+        apiMonthlyBudgetsUSD: [String: Double] = [:]
     ) {
         self.menuBarProvider = menuBarProvider
         self.providerRotationInterval = providerRotationInterval
         self.refreshInterval = refreshInterval
         self.lowUsageColorsEnabled = lowUsageColorsEnabled
+        self.apiMonthlyBudgetsUSD = apiMonthlyBudgetsUSD
+    }
+
+    func apiMonthlyBudgetUSD(for provider: ProviderID) -> Double? {
+        apiMonthlyBudgetsUSD[provider.rawValue]
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -67,6 +74,7 @@ struct UsageSettings: Codable, Equatable {
         case providerRotationInterval
         case refreshInterval
         case lowUsageColorsEnabled
+        case apiMonthlyBudgetsUSD
     }
 
     init(from decoder: Decoder) throws {
@@ -75,6 +83,7 @@ struct UsageSettings: Codable, Equatable {
         providerRotationInterval = try container.decodeIfPresent(ProviderRotationInterval.self, forKey: .providerRotationInterval) ?? .off
         refreshInterval = try container.decodeIfPresent(RefreshInterval.self, forKey: .refreshInterval) ?? .oneMinute
         lowUsageColorsEnabled = try container.decodeIfPresent(Bool.self, forKey: .lowUsageColorsEnabled) ?? true
+        apiMonthlyBudgetsUSD = try container.decodeIfPresent([String: Double].self, forKey: .apiMonthlyBudgetsUSD) ?? [:]
     }
 }
 

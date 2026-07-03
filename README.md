@@ -152,8 +152,33 @@ swift run CapBar
 - Configurable auto-refresh: manual, 30 seconds, 1 minute, 5 minutes, or 15 minutes.
 - Optional provider rotation: off, 5 seconds, 10 seconds, 20 seconds, or 30 seconds.
 - Optional low-usage warning colors for remaining limits.
+- Optional API console spend tracking per provider (see below).
 - Remembers the selected provider, rotation interval, refresh interval, and low-usage color preference in `UserDefaults`.
 - Local-only credential and session reading.
+
+## API Console Spend (Optional)
+
+Besides subscription limits, CapBar can show your API platform spend for each provider — useful if you also use the Anthropic Console or OpenAI Platform with prepaid credits or monthly billing.
+
+In the popover, the `Anthropic API` / `OpenAI API` panel accepts an API key and then shows what your key is allowed to read:
+
+- **Anthropic**: requires an Admin API key (`sk-ant-admin...`), created in the Claude Console under organization settings. CapBar queries `GET https://api.anthropic.com/v1/organizations/cost_report` and shows month-to-date and today's spend. The Admin API is unavailable for individual accounts — your Console account must belong to an organization, and regular API keys cannot read billing data.
+- **OpenAI**: CapBar tries two endpoints with whatever key you provide and shows whichever works:
+  - `GET https://api.openai.com/v1/organization/costs` — month-to-date and today's spend. Requires an Admin key (`sk-admin-...`) from `platform.openai.com/settings/organization/admin-keys`.
+  - `GET https://api.openai.com/v1/dashboard/billing/credit_grants` — remaining prepaid **credit balance**. This is an undocumented legacy endpoint that accepts some regular user API keys (`sk-...`), but not project keys (`sk-proj-...`). It may stop working at any time.
+
+Anthropic does not expose the remaining credit balance through any API, so for Anthropic CapBar shows spend rather than balance.
+
+### Monthly Limit Bar
+
+When spend data is available, the API panel can draw a limit bar (with the same orange/red low-remaining warning colors as the usage bars) showing month-to-date spend against a monthly limit:
+
+- **OpenAI**: if your key can read the legacy `GET https://api.openai.com/v1/dashboard/billing/subscription` endpoint, CapBar uses the organization's configured monthly hard limit automatically.
+- **Anthropic**: the monthly spend limit shown in the Claude Console is not exposed by any API, so set it manually via the panel's `…` menu → `Set Monthly Budget…`.
+
+A manually set budget always takes precedence over the API-provided limit. If only the credit balance is available (OpenAI legacy keys), the bar shows used credits against the total granted instead.
+
+Keys are stored locally in `~/Library/Application Support/CapBar/api-keys.json` with owner-only file permissions — the same approach the provider CLIs use for their own credentials (`~/.claude/.credentials.json`, `~/.codex/auth.json`). CapBar deliberately avoids the macOS Keychain here: the app is not signed with a stable Apple Developer ID, so every rebuild would trigger a new Keychain access prompt. Keys are only ever sent to the respective provider's API. Spend data is cached locally and refreshed at most every 5 minutes. Remove or replace a key at any time via the panel's `…` menu.
 
 ## Supported Providers
 
