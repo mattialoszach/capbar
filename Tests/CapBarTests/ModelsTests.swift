@@ -11,17 +11,47 @@ final class ModelsTests: XCTestCase {
 
         XCTAssertEqual(settings.providerRotationInterval, .off)
         XCTAssertEqual(settings.menuBarDisplayMode, .subscription)
+        XCTAssertEqual(settings.menuBarDisplayMode(for: .claude), .subscription)
         XCTAssertTrue(settings.apiSectionVisible)
     }
 
     func testMenuBarDisplayModeRoundTrips() throws {
         var settings = UsageSettings.default
-        settings.menuBarDisplayMode = .api
+        settings.setMenuBarDisplayMode(.api, for: .codex)
+        settings.setMenuBarDisplayMode(.apiLimit, for: .claude)
 
         let encoded = try JSONEncoder().encode(settings)
         let decoded = try JSONDecoder().decode(UsageSettings.self, from: encoded)
 
-        XCTAssertEqual(decoded.menuBarDisplayMode, .api)
+        XCTAssertEqual(decoded.menuBarDisplayMode(for: .codex), .api)
+        XCTAssertEqual(decoded.menuBarDisplayMode(for: .claude), .apiLimit)
+    }
+
+    func testLegacyMenuBarDisplayModeIsUsedUntilProviderOverridesExist() throws {
+        let data = Data(
+            #"{"menuBarProvider":"codex","menuBarDisplayMode":"api"}"#.utf8
+        )
+
+        var settings = try JSONDecoder().decode(UsageSettings.self, from: data)
+
+        XCTAssertEqual(settings.menuBarDisplayMode(for: .codex), .api)
+        XCTAssertEqual(settings.menuBarDisplayMode(for: .claude), .api)
+
+        settings.setMenuBarDisplayMode(.apiLimit, for: .codex)
+
+        XCTAssertEqual(settings.menuBarDisplayMode(for: .codex), .apiLimit)
+        XCTAssertEqual(settings.menuBarDisplayMode(for: .claude), .subscription)
+    }
+
+    func testManualAPILimitMetricRequiresManualBudgetAndSpend() {
+        let summary = APISpendSummary(monthToDateUSD: 25, todayUSD: 5, monthlyLimitUSD: 100)
+
+        XCTAssertNil(summary.manualAPILimitMetric(monthlyBudgetUSD: nil))
+
+        let metric = summary.manualAPILimitMetric(monthlyBudgetUSD: 50)
+
+        XCTAssertEqual(metric?.title, "Monthly limit")
+        XCTAssertEqual(metric?.usedPercent, 50)
     }
 
     func testProviderRotationIntervals() {

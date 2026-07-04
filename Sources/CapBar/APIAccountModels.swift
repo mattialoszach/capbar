@@ -60,6 +60,49 @@ struct APISpendSummary: Codable, Equatable {
     var creditsGrantedText: String {
         Formatters.usd(creditsGrantedUSD ?? 0)
     }
+
+    func apiLimitMetric(monthlyBudgetUSD: Double?) -> LimitMetric? {
+        if let metric = manualAPILimitMetric(monthlyBudgetUSD: monthlyBudgetUSD) {
+            return metric
+        }
+
+        if let spent = monthToDateUSD, let limit = monthlyLimitUSD, limit > 0 {
+            return LimitMetric(
+                title: "Monthly limit",
+                detail: "\(Formatters.usd(spent)) of \(Formatters.usd(limit))",
+                usedPercent: min(100, max(0, spent / limit * 100)),
+                resetDate: nil
+            )
+        }
+
+        if let remaining = creditsRemainingUSD,
+           let granted = creditsGrantedUSD, granted > 0 {
+            let used = max(0, granted - remaining)
+            return LimitMetric(
+                title: "API credits",
+                detail: "\(Formatters.usd(used)) of \(Formatters.usd(granted))",
+                usedPercent: min(100, max(0, used / granted * 100)),
+                resetDate: nil
+            )
+        }
+
+        return nil
+    }
+
+    func manualAPILimitMetric(monthlyBudgetUSD: Double?) -> LimitMetric? {
+        guard let spent = monthToDateUSD,
+              let limit = monthlyBudgetUSD,
+              limit > 0 else {
+            return nil
+        }
+
+        return LimitMetric(
+            title: "Monthly limit",
+            detail: "\(Formatters.usd(spent)) of \(Formatters.usd(limit))",
+            usedPercent: min(100, max(0, spent / limit * 100)),
+            resetDate: nil
+        )
+    }
 }
 
 enum APIAccountStatus: Equatable {

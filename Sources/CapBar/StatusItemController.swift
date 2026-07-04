@@ -14,13 +14,14 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
     init(store: UsageStore) {
         self.store = store
         statusItem = NSStatusBar.system.statusItem(
-            withLength: Self.statusItemLength(for: store.settings.menuBarDisplayMode)
+            withLength: Self.statusItemLength(for: store.menuBarDisplayMode)
         )
         hostingView = NSHostingView(
             rootView: StatusBarLabel(
                 subscriptionSnapshot: store.menuBarSnapshot,
                 apiSnapshot: store.menuBarAPISnapshot,
-                displayMode: store.settings.menuBarDisplayMode
+                apiMonthlyBudgetUSD: store.menuBarAPIMonthlyBudgetUSD,
+                displayMode: store.menuBarDisplayMode
             )
         )
         super.init()
@@ -92,19 +93,20 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
     }
 
     private func updateStatusBarLabel() {
-        statusItem.length = Self.statusItemLength(for: store.settings.menuBarDisplayMode)
+        let statusItemLength = Self.statusItemLength(for: store.menuBarDisplayMode)
+        if statusItem.length != statusItemLength {
+            statusItem.length = statusItemLength
+        }
         hostingView.rootView = StatusBarLabel(
             subscriptionSnapshot: store.menuBarSnapshot,
             apiSnapshot: store.menuBarAPISnapshot,
-            displayMode: store.settings.menuBarDisplayMode
+            apiMonthlyBudgetUSD: store.menuBarAPIMonthlyBudgetUSD,
+            displayMode: store.menuBarDisplayMode
         )
     }
 
     private static func statusItemLength(for displayMode: MenuBarDisplayMode) -> CGFloat {
-        switch displayMode {
-        case .subscription: 108
-        case .api: 86
-        }
+        96
     }
 
     @objc private func togglePopover() {

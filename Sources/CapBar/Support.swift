@@ -127,24 +127,70 @@ enum Formatters {
         return "\(sign)$\(number)\(units[unitIndex].suffix)"
     }
 
+    static func menuBarUSD(_ value: Double) -> String {
+        let absolute = abs(value)
+        let sign = value < 0 ? "-" : ""
+
+        guard absolute >= 999.5 else {
+            let formatted = compactNumber(absolute, significantDigits: 3)
+            return "\(sign)$\(compactNumberString(formatted, trimsTrailingZeros: true))"
+        }
+
+        let units: [(divisor: Double, suffix: String)] = [
+            (1_000, "k"),
+            (1_000_000, "M"),
+            (1_000_000_000, "B"),
+            (1_000_000_000_000, "T")
+        ]
+        var unitIndex = units.lastIndex { absolute >= $0.divisor } ?? 0
+        var formatted = compactNumber(absolute / units[unitIndex].divisor, significantDigits: 3)
+
+        if formatted.rounded >= 1_000, unitIndex < units.count - 1 {
+            unitIndex += 1
+            formatted = compactNumber(absolute / units[unitIndex].divisor, significantDigits: 3)
+        }
+
+        return "\(sign)$\(compactNumberString(formatted, trimsTrailingZeros: true))\(units[unitIndex].suffix)"
+    }
+
     static func plainNumber(_ value: Double) -> String {
         let formatted = String(format: "%.2f", value)
         return formatted.hasSuffix(".00") ? String(formatted.dropLast(3)) : formatted
     }
 
-    private static func compactNumber(_ value: Double) -> (rounded: Double, fractionDigits: Int) {
+    private static func compactNumber(_ value: Double, significantDigits: Int = 4) -> (rounded: Double, fractionDigits: Int) {
         let fractionDigits: Int
         switch value {
         case ..<10:
-            fractionDigits = 3
+            fractionDigits = max(0, significantDigits - 1)
         case ..<100:
-            fractionDigits = 2
+            fractionDigits = max(0, significantDigits - 2)
         default:
-            fractionDigits = 1
+            fractionDigits = max(0, significantDigits - 3)
         }
 
         let multiplier = pow(10, Double(fractionDigits))
         return ((value * multiplier).rounded() / multiplier, fractionDigits)
+    }
+
+    private static func compactNumberString(
+        _ formatted: (rounded: Double, fractionDigits: Int),
+        trimsTrailingZeros: Bool
+    ) -> String {
+        var number = String(
+            format: "%.\(formatted.fractionDigits)f",
+            locale: Locale(identifier: "en_US_POSIX"),
+            formatted.rounded
+        )
+        if trimsTrailingZeros {
+            while number.contains(".") && number.last == "0" {
+                number.removeLast()
+            }
+            if number.last == "." {
+                number.removeLast()
+            }
+        }
+        return number
     }
 
     private static func trimmed(_ value: Double) -> String {

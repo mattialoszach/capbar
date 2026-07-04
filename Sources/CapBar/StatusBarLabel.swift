@@ -1,12 +1,15 @@
 import SwiftUI
 
 struct StatusBarLabel: View {
+    private static let contentWidth: CGFloat = 88
+
     let subscriptionSnapshot: ProviderSnapshot
     let apiSnapshot: APIAccountSnapshot
+    let apiMonthlyBudgetUSD: Double?
     let displayMode: MenuBarDisplayMode
 
     var body: some View {
-        HStack(spacing: 7) {
+        HStack(spacing: 5) {
             ProviderLogoView(provider: subscriptionSnapshot.provider, size: 16)
 
             VStack(spacing: 2) {
@@ -17,6 +20,8 @@ struct StatusBarLabel: View {
                 case .api:
                     StatusAPISpendStrip(symbol: "clock", text: apiTodayText)
                     StatusAPISpendStrip(symbol: "calendar", text: apiMonthText)
+                case .apiLimit:
+                    StatusAPILimitStrip(metric: apiLimitMetric, amountText: apiLimitAmountText)
                 }
             }
         }
@@ -26,10 +31,7 @@ struct StatusBarLabel: View {
     }
 
     private var contentWidth: CGFloat {
-        switch displayMode {
-        case .subscription: 100
-        case .api: 82
-        }
+        Self.contentWidth
     }
 
     private var apiSpendSummary: APISpendSummary? {
@@ -47,12 +49,29 @@ struct StatusBarLabel: View {
         return Formatters.compactUSD(summary.monthToDateUSD ?? 0)
     }
 
+    private var apiLimitMetric: LimitMetric? {
+        apiSpendSummary?.manualAPILimitMetric(monthlyBudgetUSD: apiMonthlyBudgetUSD)
+    }
+
+    private var apiLimitAmountText: String {
+        guard let summary = apiSpendSummary,
+              let spent = summary.monthToDateUSD,
+              let limit = apiMonthlyBudgetUSD,
+              limit > 0 else {
+            return "--/--"
+        }
+
+        return "\(Formatters.menuBarUSD(spent))/\(Formatters.menuBarUSD(limit))"
+    }
+
     private var accessibilityText: String {
         switch displayMode {
         case .subscription:
             return "\(subscriptionSnapshot.provider.displayName) usage limits"
         case .api:
             return "\(subscriptionSnapshot.provider.displayName) API spend, today \(apiTodayText), month \(apiMonthText)"
+        case .apiLimit:
+            return "\(subscriptionSnapshot.provider.displayName) API monthly limit, \(apiLimitMetric?.remainingText ?? "unavailable"), \(apiLimitAmountText)"
         }
     }
 }
@@ -69,19 +88,19 @@ private struct StatusLimitStrip: View {
                 .frame(width: 8)
 
             TinyProgressBar(fraction: metric?.fractionRemaining ?? 0)
-                .frame(width: 34, height: 5)
+                .frame(width: 28, height: 5)
                 .padding(.leading, 3)
 
             Text(metric?.remainingPercentText ?? "--%")
                 .font(.system(size: 9, weight: .semibold, design: .rounded))
                 .monospacedDigit()
                 .foregroundStyle(.white.opacity(0.84))
-                .padding(.leading, 5)
-                .frame(width: 26, alignment: .leading)
+                .padding(.leading, 4)
+                .frame(width: 28, alignment: .leading)
                 .lineLimit(1)
                 .minimumScaleFactor(0.75)
         }
-        .frame(height: 9)
+        .frame(width: 67, height: 9, alignment: .leading)
     }
 }
 
@@ -100,12 +119,60 @@ private struct StatusAPISpendStrip: View {
                 .font(.system(size: 9, weight: .semibold, design: .rounded))
                 .monospacedDigit()
                 .foregroundStyle(.white.opacity(0.84))
-                .padding(.leading, 5)
-                .frame(width: 46, alignment: .leading)
+                .padding(.leading, 3)
+                .frame(width: 59, alignment: .trailing)
                 .lineLimit(1)
                 .minimumScaleFactor(0.65)
         }
-        .frame(height: 9)
+        .frame(width: 67, height: 9, alignment: .leading)
+    }
+}
+
+private struct StatusAPILimitStrip: View {
+    let metric: LimitMetric?
+    let amountText: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            HStack(spacing: 0) {
+                Image(systemName: "gauge.with.needle")
+                    .font(.system(size: 7, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.72))
+                    .frame(width: 8)
+
+                TinyProgressBar(fraction: metric?.fractionRemaining ?? 0)
+                    .frame(width: 28, height: 5)
+                    .padding(.leading, 3)
+
+                Text(metric?.remainingPercentText ?? "--%")
+                    .font(.system(size: 9, weight: .semibold, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(.white.opacity(0.84))
+                    .padding(.leading, 4)
+                    .frame(width: 28, alignment: .leading)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
+            }
+            .frame(width: 67, height: 9, alignment: .leading)
+
+            HStack(spacing: 0) {
+                Image(systemName: "dollarsign.circle")
+                    .font(.system(size: 7, weight: .semibold))
+                    .foregroundStyle(.white.opacity(0.64))
+                    .frame(width: 8)
+
+                Text(amountText)
+                    .font(.system(size: 8.4, weight: .semibold, design: .rounded))
+                    .monospacedDigit()
+                    .foregroundStyle(.white.opacity(0.74))
+                    .padding(.leading, 3)
+                    .frame(width: 59, alignment: .leading)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.58)
+            }
+            .frame(width: 67, height: 9, alignment: .leading)
+        }
+        .frame(width: 67, height: 20, alignment: .leading)
     }
 }
 

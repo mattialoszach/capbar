@@ -50,6 +50,7 @@ struct UsageSettings: Codable, Equatable {
     var lowUsageColorsEnabled: Bool
     var apiSectionVisible: Bool
     var apiMonthlyBudgetsUSD: [String: Double]
+    var providerMenuBarDisplayModes: [String: MenuBarDisplayMode]
 
     static let `default` = UsageSettings(menuBarProvider: .codex)
 
@@ -60,7 +61,8 @@ struct UsageSettings: Codable, Equatable {
         refreshInterval: RefreshInterval = .oneMinute,
         lowUsageColorsEnabled: Bool = true,
         apiSectionVisible: Bool = true,
-        apiMonthlyBudgetsUSD: [String: Double] = [:]
+        apiMonthlyBudgetsUSD: [String: Double] = [:],
+        providerMenuBarDisplayModes: [String: MenuBarDisplayMode] = [:]
     ) {
         self.menuBarProvider = menuBarProvider
         self.menuBarDisplayMode = menuBarDisplayMode
@@ -69,10 +71,22 @@ struct UsageSettings: Codable, Equatable {
         self.lowUsageColorsEnabled = lowUsageColorsEnabled
         self.apiSectionVisible = apiSectionVisible
         self.apiMonthlyBudgetsUSD = apiMonthlyBudgetsUSD
+        self.providerMenuBarDisplayModes = providerMenuBarDisplayModes
     }
 
     func apiMonthlyBudgetUSD(for provider: ProviderID) -> Double? {
         apiMonthlyBudgetsUSD[provider.rawValue]
+    }
+
+    func menuBarDisplayMode(for provider: ProviderID) -> MenuBarDisplayMode {
+        if let providerMode = providerMenuBarDisplayModes[provider.rawValue] {
+            return providerMode
+        }
+        return providerMenuBarDisplayModes.isEmpty ? menuBarDisplayMode : .subscription
+    }
+
+    mutating func setMenuBarDisplayMode(_ mode: MenuBarDisplayMode, for provider: ProviderID) {
+        providerMenuBarDisplayModes[provider.rawValue] = mode
     }
 
     private enum CodingKeys: String, CodingKey {
@@ -83,6 +97,7 @@ struct UsageSettings: Codable, Equatable {
         case lowUsageColorsEnabled
         case apiSectionVisible
         case apiMonthlyBudgetsUSD
+        case providerMenuBarDisplayModes
     }
 
     init(from decoder: Decoder) throws {
@@ -94,19 +109,25 @@ struct UsageSettings: Codable, Equatable {
         lowUsageColorsEnabled = try container.decodeIfPresent(Bool.self, forKey: .lowUsageColorsEnabled) ?? true
         apiSectionVisible = try container.decodeIfPresent(Bool.self, forKey: .apiSectionVisible) ?? true
         apiMonthlyBudgetsUSD = try container.decodeIfPresent([String: Double].self, forKey: .apiMonthlyBudgetsUSD) ?? [:]
+        providerMenuBarDisplayModes = try container.decodeIfPresent(
+            [String: MenuBarDisplayMode].self,
+            forKey: .providerMenuBarDisplayModes
+        ) ?? [:]
     }
 }
 
 enum MenuBarDisplayMode: String, CaseIterable, Codable, Identifiable, Sendable {
     case subscription
     case api
+    case apiLimit
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .subscription: "Subscription"
-        case .api: "API Data"
+        case .api: "API Spend"
+        case .apiLimit: "API Limit"
         }
     }
 }

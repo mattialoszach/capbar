@@ -188,6 +188,16 @@ final class APIAccountTests: XCTestCase {
         XCTAssertEqual(Formatters.compactUSD(1_000_000_000), "$1.000B")
     }
 
+    func testMenuBarUSDUsesAtMostThreeSignificantDigits() {
+        XCTAssertEqual(Formatters.menuBarUSD(2.29188675), "$2.29")
+        XCTAssertEqual(Formatters.menuBarUSD(12.349), "$12.3")
+        XCTAssertEqual(Formatters.menuBarUSD(123.45), "$123")
+        XCTAssertEqual(Formatters.menuBarUSD(999.99), "$1k")
+        XCTAssertEqual(Formatters.menuBarUSD(1_234), "$1.23k")
+        XCTAssertEqual(Formatters.menuBarUSD(12_345), "$12.3k")
+        XCTAssertEqual(Formatters.menuBarUSD(1_234_567), "$1.23M")
+    }
+
     func testMockSpendSummaryReadsEnvironmentValues() throws {
         let summary = try XCTUnwrap(
             APIAccountReader.mockSpendSummary(

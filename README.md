@@ -140,6 +140,7 @@ swift run CapBar
   - provider icon
   - current-session and weekly subscription usage by default
   - optional today and month-to-date API spend
+  - optional single-bar API monthly budget usage when a manual budget is set
 - Popover with:
   - account login status
   - current-session usage limit
@@ -153,7 +154,7 @@ swift run CapBar
 - Optional provider rotation: off, 5 seconds, 10 seconds, 20 seconds, or 30 seconds.
 - Optional low-usage warning colors for remaining limits.
 - Optional API console spend tracking per provider (see below).
-- Remembers the selected provider, menu bar data mode, rotation interval, refresh interval, and low-usage color preference in `UserDefaults`.
+- Remembers the selected provider, per-provider menu bar data mode, rotation interval, refresh interval, and low-usage color preference in `UserDefaults`.
 - Local-only credential and session reading.
 
 ## API Console Spend (Optional)
@@ -326,16 +327,16 @@ The generated app has `LSUIElement` enabled, so it runs as a menu bar accessory 
 9. Toggle low-usage colors on or off.
 10. Click `X` to fully quit the app.
 
-The selected provider controls what appears in the menu bar. The popover always lets you switch between supported providers.
+The selected provider controls what appears in the menu bar. Double-click a provider field to choose what that provider shows: the subscription limits panel, the API spend row, or the API monthly limit row when a manual monthly budget is set. The popover always lets you switch between supported providers.
 
 ## What The Menu Bar Shows
 
 The menu bar label is intentionally dense:
 
 - Provider logo on the left.
-- A clock row for the current-session window.
-- A calendar row for the weekly window.
-- Each row includes a small remaining-usage bar and percentage.
+- Subscription mode: a clock row for the current-session window and a calendar row for the weekly window.
+- API spend mode: today and month-to-date spend.
+- API monthly limit mode: one remaining-limit bar with percentage, plus month-to-date spend over the manual limit.
 
 If a metric is unavailable, CapBar shows `--%`.
 

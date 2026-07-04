@@ -36,6 +36,10 @@ struct PopoverView: View {
         store.snapshot(for: store.settings.menuBarProvider)
     }
 
+    private var selectedProviderDisplayMode: MenuBarDisplayMode {
+        store.effectiveMenuBarDisplayMode(for: selectedSnapshot.provider)
+    }
+
     @ViewBuilder
     private var usageContent: some View {
         header
@@ -54,19 +58,20 @@ struct PopoverView: View {
                 metric: selectedSnapshot.current,
                 lowUsageColorsEnabled: store.settings.lowUsageColorsEnabled
             )
-            Divider()
-                .overlay(palette.divider)
+            StableDivider(color: palette.fieldDivider)
                 .padding(.leading, 2)
             LimitRow(
                 metric: selectedSnapshot.weekly,
                 lowUsageColorsEnabled: store.settings.lowUsageColorsEnabled
             )
         }
-        .background(palette.panelBackground, in: RoundedRectangle(cornerRadius: 8))
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(palette.panelStroke, lineWidth: 1)
+        .menuBarSelectionStyle(
+            provider: selectedSnapshot.provider,
+            isSelected: selectedProviderDisplayMode == .subscription
         )
+        .doubleClickSelection {
+            store.setMenuBarDisplayMode(.subscription, for: selectedSnapshot.provider)
+        }
 
         if store.settings.apiSectionVisible {
             APIAccountSection(
@@ -76,9 +81,13 @@ struct PopoverView: View {
                 isRemovingKey: store.isRemovingAPIKey(for: selectedSnapshot.provider),
                 lowUsageColorsEnabled: store.settings.lowUsageColorsEnabled,
                 monthlyBudgetUSD: store.settings.apiMonthlyBudgetUSD(for: selectedSnapshot.provider),
+                selectedDisplayMode: selectedProviderDisplayMode,
                 onSaveKey: { store.setAPIKey($0, for: selectedSnapshot.provider) },
                 onRemoveKey: { store.clearAPIKey(for: selectedSnapshot.provider) },
-                onSaveBudget: { store.setAPIMonthlyBudget($0, for: selectedSnapshot.provider) }
+                onSaveBudget: { store.setAPIMonthlyBudget($0, for: selectedSnapshot.provider) },
+                onSelectMenuBarDisplayMode: {
+                    store.setMenuBarDisplayMode($0, for: selectedSnapshot.provider)
+                }
             )
         }
 
@@ -94,12 +103,6 @@ struct PopoverView: View {
 
         VStack(spacing: 0) {
             ProviderRotationPickerRow(selection: providerRotationIntervalBinding)
-
-            Divider()
-                .overlay(palette.divider)
-                .padding(.leading, 40)
-
-            MenuBarDisplayPickerRow(selection: menuBarDisplayModeBinding)
 
             Divider()
                 .overlay(palette.divider)
@@ -246,13 +249,6 @@ struct PopoverView: View {
         )
     }
 
-    private var menuBarDisplayModeBinding: Binding<MenuBarDisplayMode> {
-        Binding(
-            get: { store.settings.menuBarDisplayMode },
-            set: { store.setMenuBarDisplayMode($0) }
-        )
-    }
-
     private var lowUsageColorsBinding: Binding<Bool> {
         Binding(
             get: { store.settings.lowUsageColorsEnabled },
@@ -309,6 +305,10 @@ private struct PopoverPalette {
 
     var divider: Color {
         primaryText.opacity(isDark ? 0.08 : 0.12)
+    }
+
+    var fieldDivider: Color {
+        isDark ? .white.opacity(0.16) : .white.opacity(0.52)
     }
 
     var selectedProviderText: Color {
@@ -469,7 +469,7 @@ private extension ProviderID {
     var selectionAccentColor: Color {
         switch self {
         case .codex:
-            Color(red: 0.32, green: 0.62, blue: 1.0)
+            Color(red: 0.24, green: 0.48, blue: 0.76)
         case .claude:
             Color(red: 0.86, green: 0.42, blue: 0.20)
         }
@@ -499,35 +499,6 @@ private struct ProviderRotationPickerRow: View {
             .pickerStyle(.menu)
             .controlSize(.small)
             .frame(width: 96)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 12)
-    }
-}
-
-private struct MenuBarDisplayPickerRow: View {
-    @Binding var selection: MenuBarDisplayMode
-    @Environment(\.popoverPalette) private var palette
-
-    var body: some View {
-        HStack(spacing: 10) {
-            SettingsIcon(systemName: "menubar.rectangle")
-
-            Text("Menu bar data")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(palette.primaryText)
-
-            Spacer()
-
-            Picker("", selection: $selection) {
-                ForEach(MenuBarDisplayMode.allCases) { mode in
-                    Text(mode.title).tag(mode)
-                }
-            }
-            .labelsHidden()
-            .pickerStyle(.menu)
-            .controlSize(.small)
-            .frame(width: 118)
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
@@ -620,6 +591,82 @@ private struct SettingsIcon: View {
             .font(.system(size: 12, weight: .semibold))
             .foregroundStyle(palette.controlIcon)
             .frame(width: 18, height: 18)
+    }
+}
+
+private struct StableDivider: View {
+    let color: Color
+
+    var body: some View {
+        Rectangle()
+            .fill(color)
+            .frame(height: 1)
+            .allowsHitTesting(false)
+    }
+}
+
+private extension View {
+    func menuBarSelectionStyle(
+        provider: ProviderID,
+        isSelected: Bool,
+        drawsUnselectedFrame: Bool = true
+    ) -> some View {
+        modifier(
+            MenuBarSelectionStyle(
+                provider: provider,
+                isSelected: isSelected,
+                drawsUnselectedFrame: drawsUnselectedFrame
+            )
+        )
+    }
+
+    func doubleClickSelection(action: @escaping () -> Void) -> some View {
+        doubleClickSelection(isEnabled: true, action: action)
+    }
+
+    @ViewBuilder
+    func doubleClickSelection(isEnabled: Bool, action: @escaping () -> Void) -> some View {
+        if isEnabled {
+            onTapGesture(count: 2, perform: action)
+        } else {
+            self
+        }
+    }
+}
+
+private struct MenuBarSelectionStyle: ViewModifier {
+    let provider: ProviderID
+    let isSelected: Bool
+    let drawsUnselectedFrame: Bool
+    @Environment(\.popoverPalette) private var palette
+
+    func body(content: Content) -> some View {
+        content
+            .background(backgroundColor, in: RoundedRectangle(cornerRadius: 8))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(strokeColor, lineWidth: isSelected ? 1.4 : 1)
+            )
+            .shadow(
+                color: isSelected ? palette.selectedProviderShadow(for: provider) : .clear,
+                radius: isSelected ? 5 : 0,
+                y: isSelected ? 1 : 0
+            )
+            .contentShape(RoundedRectangle(cornerRadius: 8))
+    }
+
+    private var drawsFrame: Bool {
+        isSelected || drawsUnselectedFrame
+    }
+
+    private var backgroundColor: Color {
+        guard drawsFrame else { return .clear }
+        return isSelected ? palette.selectedProviderBackground(for: provider) : palette.panelBackground
+    }
+
+    private var strokeColor: Color {
+        guard drawsFrame else { return .clear }
+        return isSelected ? palette.selectedProviderStroke(for: provider) : palette.panelStroke
     }
 }
 
@@ -774,7 +821,9 @@ private struct SimpleProgressBar: View {
                     .frame(width: fillWidth(total: geometry.size.width))
             }
         }
-        .animation(.providerSelection, value: fraction)
+        .transaction { transaction in
+            transaction.animation = nil
+        }
     }
 
     private func fillWidth(total: CGFloat) -> CGFloat {
@@ -854,9 +903,11 @@ private struct APIAccountSection: View {
     let isRemovingKey: Bool
     let lowUsageColorsEnabled: Bool
     let monthlyBudgetUSD: Double?
+    let selectedDisplayMode: MenuBarDisplayMode
     let onSaveKey: (String) -> Void
     let onRemoveKey: () -> Void
     let onSaveBudget: (Double?) -> Void
+    let onSelectMenuBarDisplayMode: (MenuBarDisplayMode) -> Void
 
     private enum EditingMode {
         case none
@@ -879,6 +930,14 @@ private struct APIAccountSection: View {
                         .overlay(palette.divider)
                         .padding(.leading, 2)
                     LimitRow(metric: metric, lowUsageColorsEnabled: lowUsageColorsEnabled)
+                        .menuBarSelectionStyle(
+                            provider: provider,
+                            isSelected: selectedDisplayMode == .apiLimit,
+                            drawsUnselectedFrame: false
+                        )
+                        .doubleClickSelection(isEnabled: canSelectAPILimit) {
+                            onSelectMenuBarDisplayMode(.apiLimit)
+                        }
                 }
             case .key:
                 keyEditor
@@ -901,31 +960,17 @@ private struct APIAccountSection: View {
 
     private var limitMetric: LimitMetric? {
         guard case let .spend(summary) = snapshot.status else { return nil }
+        return summary.apiLimitMetric(monthlyBudgetUSD: monthlyBudgetUSD)
+    }
 
-        if let spent = summary.monthToDateUSD {
-            let limit = monthlyBudgetUSD ?? summary.monthlyLimitUSD
-            if let limit, limit > 0 {
-                return LimitMetric(
-                    title: "Monthly limit",
-                    detail: "\(Formatters.usd(spent)) of \(Formatters.usd(limit))",
-                    usedPercent: min(100, max(0, spent / limit * 100)),
-                    resetDate: nil
-                )
-            }
-        }
+    private var canSelectAPISpend: Bool {
+        guard case let .spend(summary) = snapshot.status else { return false }
+        return summary.hasSpend
+    }
 
-        if let remaining = summary.creditsRemainingUSD,
-           let granted = summary.creditsGrantedUSD, granted > 0 {
-            let used = max(0, granted - remaining)
-            return LimitMetric(
-                title: "API credits",
-                detail: "\(Formatters.usd(used)) of \(Formatters.usd(granted))",
-                usedPercent: min(100, max(0, used / granted * 100)),
-                resetDate: nil
-            )
-        }
-
-        return nil
+    private var canSelectAPILimit: Bool {
+        guard case let .spend(summary) = snapshot.status else { return false }
+        return summary.manualAPILimitMetric(monthlyBudgetUSD: monthlyBudgetUSD) != nil
     }
 
     private var statusRow: some View {
@@ -954,6 +999,14 @@ private struct APIAccountSection: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 12)
+        .menuBarSelectionStyle(
+            provider: provider,
+            isSelected: selectedDisplayMode == .api,
+            drawsUnselectedFrame: false
+        )
+        .doubleClickSelection(isEnabled: canSelectAPISpend) {
+            onSelectMenuBarDisplayMode(.api)
+        }
     }
 
     @ViewBuilder

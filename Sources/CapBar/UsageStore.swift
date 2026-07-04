@@ -30,12 +30,48 @@ final class UsageStore: ObservableObject {
         apiSnapshot(for: settings.menuBarProvider)
     }
 
+    var menuBarAPIMonthlyBudgetUSD: Double? {
+        settings.apiMonthlyBudgetUSD(for: settings.menuBarProvider)
+    }
+
+    var menuBarDisplayMode: MenuBarDisplayMode {
+        effectiveMenuBarDisplayMode(for: settings.menuBarProvider)
+    }
+
     func snapshot(for provider: ProviderID) -> ProviderSnapshot {
         snapshots.first { $0.provider == provider } ?? .loading(provider: provider)
     }
 
     func apiSnapshot(for provider: ProviderID) -> APIAccountSnapshot {
         apiSnapshots.first { $0.provider == provider } ?? .noKey(provider: provider)
+    }
+
+    func configuredMenuBarDisplayMode(for provider: ProviderID) -> MenuBarDisplayMode {
+        settings.menuBarDisplayMode(for: provider)
+    }
+
+    func effectiveMenuBarDisplayMode(for provider: ProviderID) -> MenuBarDisplayMode {
+        let displayMode = configuredMenuBarDisplayMode(for: provider)
+
+        switch displayMode {
+        case .subscription:
+            return .subscription
+        case .api:
+            return hasAPISpend(for: provider) ? .api : .subscription
+        case .apiLimit:
+            return manualAPILimitMetric(for: provider) == nil ? .subscription : .apiLimit
+        }
+    }
+
+    func canSelectMenuBarDisplayMode(_ mode: MenuBarDisplayMode, for provider: ProviderID) -> Bool {
+        switch mode {
+        case .subscription:
+            return true
+        case .api:
+            return hasAPISpend(for: provider)
+        case .apiLimit:
+            return manualAPILimitMetric(for: provider) != nil
+        }
     }
 
     func isCheckingAPIKey(for provider: ProviderID) -> Bool {
@@ -108,6 +144,8 @@ final class UsageStore: ObservableObject {
         pendingAPIKeyRemovalProviderIDs.insert(provider.rawValue)
         APIKeyStore.deleteKey(for: provider)
         APIAccountReader(provider: provider).clearCache()
+        settings.setMenuBarDisplayMode(.subscription, for: provider)
+        persistSettings()
         refresh(force: true)
     }
 
@@ -116,6 +154,9 @@ final class UsageStore: ObservableObject {
             settings.apiMonthlyBudgetsUSD[provider.rawValue] = budgetUSD
         } else {
             settings.apiMonthlyBudgetsUSD.removeValue(forKey: provider.rawValue)
+            if configuredMenuBarDisplayMode(for: provider) == .apiLimit {
+                settings.setMenuBarDisplayMode(.subscription, for: provider)
+            }
         }
         persistSettings()
     }
@@ -126,7 +167,12 @@ final class UsageStore: ObservableObject {
     }
 
     func setMenuBarDisplayMode(_ mode: MenuBarDisplayMode) {
-        settings.menuBarDisplayMode = mode
+        setMenuBarDisplayMode(mode, for: settings.menuBarProvider)
+    }
+
+    func setMenuBarDisplayMode(_ mode: MenuBarDisplayMode, for provider: ProviderID) {
+        guard canSelectMenuBarDisplayMode(mode, for: provider) else { return }
+        settings.setMenuBarDisplayMode(mode, for: provider)
         persistSettings()
     }
 
@@ -157,6 +203,16 @@ final class UsageStore: ObservableObject {
 
     func runCLILogin(for provider: ProviderID) {
         ProviderLoginRunner.runCLILogin(for: provider)
+    }
+
+    private func hasAPISpend(for provider: ProviderID) -> Bool {
+        guard case let .spend(summary) = apiSnapshot(for: provider).status else { return false }
+        return summary.hasSpend
+    }
+
+    private func manualAPILimitMetric(for provider: ProviderID) -> LimitMetric? {
+        guard case let .spend(summary) = apiSnapshot(for: provider).status else { return nil }
+        return summary.manualAPILimitMetric(monthlyBudgetUSD: settings.apiMonthlyBudgetUSD(for: provider))
     }
 
     private func configureRefreshTimer() {
