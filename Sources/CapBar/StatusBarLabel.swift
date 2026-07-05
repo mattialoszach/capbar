@@ -1,15 +1,14 @@
 import SwiftUI
 
 struct StatusBarLabel: View {
-    private static let contentWidth: CGFloat = 88
-
     let subscriptionSnapshot: ProviderSnapshot
     let apiSnapshot: APIAccountSnapshot
     let apiMonthlyBudgetUSD: Double?
     let displayMode: MenuBarDisplayMode
+    let usesExpandedLayout: Bool
 
     var body: some View {
-        HStack(spacing: 5) {
+        HStack(spacing: 4) {
             ProviderLogoView(provider: subscriptionSnapshot.provider, size: 16)
 
             VStack(spacing: 2) {
@@ -18,8 +17,7 @@ struct StatusBarLabel: View {
                     StatusLimitStrip(symbol: "clock", metric: subscriptionSnapshot.current)
                     StatusLimitStrip(symbol: "calendar", metric: subscriptionSnapshot.weekly)
                 case .api:
-                    StatusAPISpendStrip(symbol: "clock", text: apiTodayText)
-                    StatusAPISpendStrip(symbol: "calendar", text: apiMonthText)
+                    StatusAPISpendStack(todayText: apiTodayText, monthText: apiMonthText)
                 case .apiLimit:
                     StatusAPILimitStrip(metric: apiLimitMetric, amountText: apiLimitAmountText)
                 }
@@ -31,7 +29,16 @@ struct StatusBarLabel: View {
     }
 
     private var contentWidth: CGFloat {
-        Self.contentWidth
+        if usesExpandedLayout {
+            return 95
+        }
+
+        switch displayMode {
+        case .subscription, .apiLimit:
+            return 95
+        case .api:
+            return 72
+        }
     }
 
     private var apiSpendSummary: APISpendSummary? {
@@ -88,7 +95,7 @@ private struct StatusLimitStrip: View {
                 .frame(width: 8)
 
             TinyProgressBar(fraction: metric?.fractionRemaining ?? 0)
-                .frame(width: 28, height: 5)
+                .frame(width: 34, height: 5)
                 .padding(.leading, 3)
 
             Text(metric?.remainingPercentText ?? "--%")
@@ -96,11 +103,24 @@ private struct StatusLimitStrip: View {
                 .monospacedDigit()
                 .foregroundStyle(.white.opacity(0.84))
                 .padding(.leading, 4)
-                .frame(width: 28, alignment: .leading)
+                .frame(width: 26, alignment: .leading)
                 .lineLimit(1)
                 .minimumScaleFactor(0.75)
         }
-        .frame(width: 67, height: 9, alignment: .leading)
+        .frame(width: 75, height: 9, alignment: .leading)
+    }
+}
+
+private struct StatusAPISpendStack: View {
+    let todayText: String
+    let monthText: String
+
+    var body: some View {
+        VStack(spacing: 2) {
+            StatusAPISpendStrip(symbol: "clock", text: todayText)
+            StatusAPISpendStrip(symbol: "calendar", text: monthText)
+        }
+        .frame(width: 52, height: 20, alignment: .leading)
     }
 }
 
@@ -120,11 +140,11 @@ private struct StatusAPISpendStrip: View {
                 .monospacedDigit()
                 .foregroundStyle(.white.opacity(0.84))
                 .padding(.leading, 3)
-                .frame(width: 59, alignment: .trailing)
+                .frame(width: 41, alignment: .leading)
                 .lineLimit(1)
                 .minimumScaleFactor(0.65)
         }
-        .frame(width: 67, height: 9, alignment: .leading)
+        .frame(width: 52, height: 9, alignment: .leading)
     }
 }
 
@@ -141,7 +161,7 @@ private struct StatusAPILimitStrip: View {
                     .frame(width: 8)
 
                 TinyProgressBar(fraction: metric?.fractionRemaining ?? 0)
-                    .frame(width: 28, height: 5)
+                    .frame(width: 34, height: 5)
                     .padding(.leading, 3)
 
                 Text(metric?.remainingPercentText ?? "--%")
@@ -149,11 +169,11 @@ private struct StatusAPILimitStrip: View {
                     .monospacedDigit()
                     .foregroundStyle(.white.opacity(0.84))
                     .padding(.leading, 4)
-                    .frame(width: 28, alignment: .leading)
+                    .frame(width: 26, alignment: .leading)
                     .lineLimit(1)
                     .minimumScaleFactor(0.75)
             }
-            .frame(width: 67, height: 9, alignment: .leading)
+            .frame(width: 75, height: 9, alignment: .leading)
 
             HStack(spacing: 0) {
                 Image(systemName: "dollarsign.circle")
@@ -166,14 +186,14 @@ private struct StatusAPILimitStrip: View {
                     .monospacedDigit()
                     .foregroundStyle(.white.opacity(0.74))
                     .padding(.leading, 3)
-                    .frame(width: 59, alignment: .leading)
+                    .frame(width: 64, alignment: .leading)
                     .lineLimit(1)
                     .minimumScaleFactor(0.58)
                     .offset(y: 0.7)
             }
-            .frame(width: 67, height: 9, alignment: .leading)
+            .frame(width: 75, height: 9, alignment: .leading)
         }
-        .frame(width: 67, height: 20, alignment: .leading)
+        .frame(width: 75, height: 20, alignment: .leading)
     }
 }
 

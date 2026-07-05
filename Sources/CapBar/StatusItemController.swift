@@ -10,6 +10,8 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
     private let hostingView: NSHostingView<StatusBarLabel>
     private var cancellables = Set<AnyCancellable>()
     private var providerRotationTimer: Timer?
+    private var frozenStatusItemLength: CGFloat?
+    private static let expandedStatusItemLength: CGFloat = 96
 
     init(store: UsageStore) {
         self.store = store
@@ -21,7 +23,8 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
                 subscriptionSnapshot: store.menuBarSnapshot,
                 apiSnapshot: store.menuBarAPISnapshot,
                 apiMonthlyBudgetUSD: store.menuBarAPIMonthlyBudgetUSD,
-                displayMode: store.menuBarDisplayMode
+                displayMode: store.menuBarDisplayMode,
+                usesExpandedLayout: false
             )
         )
         super.init()
@@ -46,8 +49,8 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         button.addSubview(hostingView)
 
         NSLayoutConstraint.activate([
-            hostingView.leadingAnchor.constraint(equalTo: button.leadingAnchor, constant: 2),
-            hostingView.trailingAnchor.constraint(equalTo: button.trailingAnchor, constant: -2),
+            hostingView.leadingAnchor.constraint(equalTo: button.leadingAnchor),
+            hostingView.trailingAnchor.constraint(equalTo: button.trailingAnchor),
             hostingView.centerYAnchor.constraint(equalTo: button.centerYAnchor),
             hostingView.heightAnchor.constraint(equalToConstant: 20)
         ])
@@ -93,7 +96,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
     }
 
     private func updateStatusBarLabel() {
-        let statusItemLength = Self.statusItemLength(for: store.menuBarDisplayMode)
+        let statusItemLength = frozenStatusItemLength ?? Self.statusItemLength(for: store.menuBarDisplayMode)
         if statusItem.length != statusItemLength {
             statusItem.length = statusItemLength
         }
@@ -101,12 +104,18 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
             subscriptionSnapshot: store.menuBarSnapshot,
             apiSnapshot: store.menuBarAPISnapshot,
             apiMonthlyBudgetUSD: store.menuBarAPIMonthlyBudgetUSD,
-            displayMode: store.menuBarDisplayMode
+            displayMode: store.menuBarDisplayMode,
+            usesExpandedLayout: frozenStatusItemLength != nil
         )
     }
 
     private static func statusItemLength(for displayMode: MenuBarDisplayMode) -> CGFloat {
-        96
+        switch displayMode {
+        case .subscription, .apiLimit:
+            return expandedStatusItemLength
+        case .api:
+            return 72
+        }
     }
 
     @objc private func togglePopover() {
@@ -117,12 +126,16 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         } else {
             pauseProviderRotation()
             NSApplication.shared.activate(ignoringOtherApps: true)
+            frozenStatusItemLength = Self.expandedStatusItemLength
+            updateStatusBarLabel()
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             popover.contentViewController?.view.window?.makeKey()
         }
     }
 
     func popoverDidClose(_ notification: Notification) {
+        frozenStatusItemLength = nil
+        updateStatusBarLabel()
         configureProviderRotationTimer()
     }
 
