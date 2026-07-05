@@ -37,7 +37,7 @@ struct StatusBarLabel: View {
         case .subscription, .apiLimit:
             return 95
         case .api:
-            return 72
+            return 66
         }
     }
 
@@ -120,7 +120,7 @@ private struct StatusAPISpendStack: View {
             StatusAPISpendStrip(symbol: "clock", text: todayText)
             StatusAPISpendStrip(symbol: "calendar", text: monthText)
         }
-        .frame(width: 52, height: 20, alignment: .leading)
+        .frame(width: 46, height: 20, alignment: .leading)
     }
 }
 
@@ -140,11 +140,11 @@ private struct StatusAPISpendStrip: View {
                 .monospacedDigit()
                 .foregroundStyle(.white.opacity(0.84))
                 .padding(.leading, 3)
-                .frame(width: 41, alignment: .leading)
+                .frame(width: 35, alignment: .leading)
                 .lineLimit(1)
                 .minimumScaleFactor(0.65)
         }
-        .frame(width: 52, height: 9, alignment: .leading)
+        .frame(width: 46, height: 9, alignment: .leading)
     }
 }
 

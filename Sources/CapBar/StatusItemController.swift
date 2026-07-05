@@ -114,7 +114,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         case .subscription, .apiLimit:
             return expandedStatusItemLength
         case .api:
-            return 72
+            return 66
         }
     }
 
