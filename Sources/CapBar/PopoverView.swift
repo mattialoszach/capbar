@@ -21,9 +21,6 @@ struct PopoverView: View {
             }
         }
         .animation(.providerSelection, value: selectedSnapshot.provider)
-        .animation(.providerSelection, value: isShowingSettings)
-        .animation(.providerSelection, value: isShowingHelp)
-        .animation(.providerSelection, value: activeTourStep)
         .padding(EdgeInsets(top: 16, leading: 16, bottom: 16, trailing: 16))
         .frame(width: 360)
         .overlay(alignment: .topTrailing) {
