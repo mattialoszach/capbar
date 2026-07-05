@@ -26,17 +26,20 @@ struct PopoverView: View {
         .overlay(alignment: .topTrailing) {
             popoverControls
         }
-        .overlay {
-            if let activeTourStep {
-                GuidedTourOverlay(
-                    step: activeTourStep,
-                    currentStep: activeTourIndex + 1,
-                    stepCount: HelpTourStep.allCases.count,
-                    onBack: showPreviousTourStep,
-                    onNext: showNextTourStep,
-                    onClose: endTour
-                )
-                .transition(.opacity.combined(with: .move(edge: .bottom)))
+        .overlayPreferenceValue(TourTargetPreferenceKey.self) { targets in
+            GeometryReader { proxy in
+                if let activeTourStep {
+                    GuidedTourOverlay(
+                        step: activeTourStep,
+                        currentStep: activeTourIndex + 1,
+                        stepCount: helpTourSteps.count,
+                        targetFrame: targets[activeTourStep].map { proxy[$0] },
+                        onBack: showPreviousTourStep,
+                        onNext: showNextTourStep,
+                        onClose: endTour
+                    )
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+                }
             }
         }
         .environment(\.popoverPalette, palette)
@@ -61,10 +64,14 @@ struct PopoverView: View {
 
     private var activeTourIndex: Int {
         guard let activeTourStep,
-              let index = HelpTourStep.allCases.firstIndex(of: activeTourStep) else {
+              let index = helpTourSteps.firstIndex(of: activeTourStep) else {
             return 0
         }
         return index
+    }
+
+    private var helpTourSteps: [HelpTourStep] {
+        store.settings.apiSectionVisible ? HelpTourStep.allCases : [.provider, .menuBarDisplay, .settings]
     }
 
     @ViewBuilder
@@ -72,6 +79,7 @@ struct PopoverView: View {
         header
 
         ProviderSelector(selection: menuBarProviderBinding)
+            .tourTarget(.provider)
 
         AccountLine(
             snapshot: selectedSnapshot,
@@ -99,6 +107,7 @@ struct PopoverView: View {
         .doubleClickSelection {
             store.setMenuBarDisplayMode(.subscription, for: selectedSnapshot.provider)
         }
+        .tourTarget(.menuBarDisplay)
 
         if store.settings.apiSectionVisible {
             APIAccountSection(
@@ -116,6 +125,7 @@ struct PopoverView: View {
                     store.setMenuBarDisplayMode($0, for: selectedSnapshot.provider)
                 }
             )
+            .tourTarget(.apiUsage)
         }
 
         Text(selectedSnapshot.sourceDescription)
@@ -171,6 +181,7 @@ struct PopoverView: View {
             RoundedRectangle(cornerRadius: 8)
                 .stroke(palette.panelStroke, lineWidth: 1)
         )
+        .tourTarget(.settings)
     }
 
     @ViewBuilder
@@ -337,21 +348,22 @@ struct PopoverView: View {
     }
 
     private func startTour() {
-        showTourStep(.provider)
+        guard let firstStep = helpTourSteps.first else { return }
+        showTourStep(firstStep)
     }
 
     private func showPreviousTourStep() {
         let previousIndex = max(0, activeTourIndex - 1)
-        showTourStep(HelpTourStep.allCases[previousIndex])
+        showTourStep(helpTourSteps[previousIndex])
     }
 
     private func showNextTourStep() {
         let nextIndex = activeTourIndex + 1
-        guard nextIndex < HelpTourStep.allCases.count else {
+        guard nextIndex < helpTourSteps.count else {
             endTour()
             return
         }
-        showTourStep(HelpTourStep.allCases[nextIndex])
+        showTourStep(helpTourSteps[nextIndex])
     }
 
     private func showTourStep(_ step: HelpTourStep) {
@@ -564,7 +576,7 @@ private enum AppMetadata {
     }
 }
 
-private enum HelpTourStep: Int, CaseIterable, Equatable, Identifiable {
+private enum HelpTourStep: Int, CaseIterable, Hashable, Identifiable {
     case provider
     case menuBarDisplay
     case apiUsage
@@ -616,6 +628,25 @@ private enum HelpTourStep: Int, CaseIterable, Equatable, Identifiable {
     }
 }
 
+private struct TourTargetPreferenceKey: PreferenceKey {
+    static let defaultValue: [HelpTourStep: Anchor<CGRect>] = [:]
+
+    static func reduce(
+        value: inout [HelpTourStep: Anchor<CGRect>],
+        nextValue: () -> [HelpTourStep: Anchor<CGRect>]
+    ) {
+        value.merge(nextValue()) { _, new in new }
+    }
+}
+
+private extension View {
+    func tourTarget(_ step: HelpTourStep) -> some View {
+        anchorPreference(key: TourTargetPreferenceKey.self, value: .bounds) { anchor in
+            [step: anchor]
+        }
+    }
+}
+
 private struct PopoverIconButton: View {
     let systemName: String
     let help: String
@@ -650,7 +681,7 @@ private struct HelpTourStartRow: View {
                     Text("Start quick tour")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(palette.primaryText)
-                    Text("A transparent step-by-step guide through the popover.")
+                    Text("A guided walkthrough with markers for each step.")
                         .font(.system(size: 11, weight: .medium))
                         .foregroundStyle(palette.secondaryText)
                         .lineLimit(2)
@@ -705,6 +736,7 @@ private struct GuidedTourOverlay: View {
     let step: HelpTourStep
     let currentStep: Int
     let stepCount: Int
+    let targetFrame: CGRect?
     let onBack: () -> Void
     let onNext: () -> Void
     let onClose: () -> Void
@@ -719,61 +751,151 @@ private struct GuidedTourOverlay: View {
         currentStep >= stepCount
     }
 
+    private var placesDescriptionAtTop: Bool {
+        step == .apiUsage
+    }
+
+    private var showsTargetMarker: Bool {
+        step != .settings
+    }
+
+    private var topDescriptionOffset: CGFloat {
+        placesDescriptionAtTop ? 28 : 0
+    }
+
     var body: some View {
-        ZStack(alignment: .bottom) {
-            Color.black.opacity(0.16)
-                .allowsHitTesting(false)
+        GeometryReader { geometry in
+            ZStack {
+                Color.black.opacity(0.10)
+                    .allowsHitTesting(false)
 
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 8) {
-                    SettingsIcon(systemName: step.systemName)
-
-                    VStack(alignment: .leading, spacing: 1) {
-                        Text(step.title)
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(palette.primaryText)
-                        Text("\(currentStep) of \(stepCount)")
-                            .font(.system(size: 10.5, weight: .medium))
-                            .foregroundStyle(palette.tertiaryText)
-                    }
-
-                    Spacer()
+                if showsTargetMarker, let targetFrame {
+                    TourTargetMarker(
+                        targetFrame: targetFrame,
+                        containerSize: geometry.size
+                    )
                 }
 
-                Text(step.detail)
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(palette.secondaryText)
-                    .lineLimit(3)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                HStack(spacing: 8) {
-                    Button("Skip", action: onClose)
-                        .buttonStyle(.plain)
-                        .foregroundStyle(palette.secondaryText)
-
-                    Spacer()
-
-                    if !isFirstStep {
-                        Button("Back", action: onBack)
-                            .controlSize(.small)
+                VStack {
+                    if placesDescriptionAtTop {
+                        descriptionCard
+                            .padding(.top, topDescriptionOffset)
+                        Spacer(minLength: 0)
+                    } else {
+                        Spacer(minLength: 0)
+                        descriptionCard
                     }
-
-                    Button(isLastStep ? "Done" : "Next", action: onNext)
-                        .controlSize(.small)
-                        .keyboardShortcut(.defaultAction)
                 }
-                .font(.system(size: 12, weight: .semibold))
             }
-            .padding(12)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(palette.panelStroke, lineWidth: 1)
-            )
-            .shadow(color: .black.opacity(0.14), radius: 12, y: 4)
-            .padding(12)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var descriptionCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                SettingsIcon(systemName: step.systemName)
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(step.title)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(palette.primaryText)
+                    Text("\(currentStep) of \(stepCount)")
+                        .font(.system(size: 10.5, weight: .medium))
+                        .foregroundStyle(palette.tertiaryText)
+                }
+
+                Spacer()
+            }
+
+            Text(step.detail)
+                .font(.system(size: 12, weight: .medium))
+                .foregroundStyle(palette.secondaryText)
+                .lineLimit(3)
+                .fixedSize(horizontal: false, vertical: true)
+
+            HStack(spacing: 8) {
+                Button("Skip", action: onClose)
+                    .buttonStyle(.plain)
+                    .foregroundStyle(palette.secondaryText)
+
+                Spacer()
+
+                if !isFirstStep {
+                    Button("Back", action: onBack)
+                        .controlSize(.small)
+                }
+
+                Button(isLastStep ? "Done" : "Next", action: onNext)
+                    .controlSize(.small)
+                    .keyboardShortcut(.defaultAction)
+            }
+            .font(.system(size: 12, weight: .semibold))
+        }
+        .padding(12)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(palette.panelStroke, lineWidth: 1)
+        )
+        .shadow(color: .black.opacity(0.14), radius: 12, y: 4)
+        .padding(12)
+    }
+}
+
+private struct TourTargetMarker: View {
+    let targetFrame: CGRect
+    let containerSize: CGSize
+    @Environment(\.popoverPalette) private var palette
+
+    private var highlightedFrame: CGRect {
+        targetFrame.insetBy(dx: -5, dy: -5)
+    }
+
+    private var arrowSystemName: String {
+        placesArrowBelowTarget ? "arrow.up" : "arrow.down"
+    }
+
+    private var placesArrowBelowTarget: Bool {
+        highlightedFrame.midY < containerSize.height * 0.46
+    }
+
+    private var arrowPosition: CGPoint {
+        let preferredY = placesArrowBelowTarget ? highlightedFrame.maxY + 22 : highlightedFrame.minY - 22
+        let minimumY: CGFloat = 30
+        let maximumY = max(minimumY, containerSize.height - 156)
+        return CGPoint(
+            x: min(max(highlightedFrame.midX, 36), max(36, containerSize.width - 36)),
+            y: min(max(preferredY, minimumY), maximumY)
+        )
+    }
+
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 10)
+                .fill(palette.activeStatus.opacity(0.08))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(
+                            palette.activeStatus,
+                            style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [6, 4])
+                        )
+                )
+                .frame(
+                    width: max(0, highlightedFrame.width),
+                    height: max(0, highlightedFrame.height)
+                )
+                .position(x: highlightedFrame.midX, y: highlightedFrame.midY)
+
+            Image(systemName: arrowSystemName)
+                .font(.system(size: 15, weight: .bold))
+                .foregroundStyle(.white)
+                .frame(width: 30, height: 30)
+                .background(palette.activeStatus, in: Circle())
+                .shadow(color: .black.opacity(0.18), radius: 7, y: 2)
+                .position(arrowPosition)
+        }
+        .allowsHitTesting(false)
     }
 }
 
