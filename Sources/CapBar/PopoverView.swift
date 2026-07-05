@@ -6,25 +6,47 @@ struct PopoverView: View {
     let onQuit: () -> Void
 
     @State private var isShowingSettings = false
+    @State private var isShowingHelp = false
+    @State private var activeTourStep: HelpTourStep?
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            if isShowingSettings {
+            if isShowingHelp {
+                helpContent
+            } else if isShowingSettings {
                 settingsContent
             } else {
                 usageContent
             }
         }
         .animation(.providerSelection, value: selectedSnapshot.provider)
+        .animation(.providerSelection, value: isShowingSettings)
+        .animation(.providerSelection, value: isShowingHelp)
+        .animation(.providerSelection, value: activeTourStep)
         .padding(EdgeInsets(top: 16, leading: 16, bottom: 16, trailing: 16))
         .frame(width: 360)
         .overlay(alignment: .topTrailing) {
             popoverControls
         }
+        .overlay {
+            if let activeTourStep {
+                GuidedTourOverlay(
+                    step: activeTourStep,
+                    currentStep: activeTourIndex + 1,
+                    stepCount: HelpTourStep.allCases.count,
+                    onBack: showPreviousTourStep,
+                    onNext: showNextTourStep,
+                    onClose: endTour
+                )
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
+        }
         .environment(\.popoverPalette, palette)
         .onReceive(NotificationCenter.default.publisher(for: NSPopover.didCloseNotification)) { _ in
             isShowingSettings = false
+            isShowingHelp = false
+            activeTourStep = nil
         }
     }
 
@@ -38,6 +60,14 @@ struct PopoverView: View {
 
     private var selectedProviderDisplayMode: MenuBarDisplayMode {
         store.effectiveMenuBarDisplayMode(for: selectedSnapshot.provider)
+    }
+
+    private var activeTourIndex: Int {
+        guard let activeTourStep,
+              let index = HelpTourStep.allCases.firstIndex(of: activeTourStep) else {
+            return 0
+        }
+        return index
     }
 
     @ViewBuilder
@@ -146,6 +176,60 @@ struct PopoverView: View {
         )
     }
 
+    @ViewBuilder
+    private var helpContent: some View {
+        helpHeader
+
+        VStack(spacing: 0) {
+            HelpTourStartRow(onStart: startTour)
+
+            Divider()
+                .overlay(palette.divider)
+                .padding(.leading, 40)
+
+            HelpGuideRow(
+                systemName: "menubar.rectangle",
+                title: "Menu bar display",
+                detail: "Double-click a usage or API field to make it the menu bar display for the selected provider."
+            )
+
+            Divider()
+                .overlay(palette.divider)
+                .padding(.leading, 40)
+
+            HelpGuideRow(
+                systemName: "person.2",
+                title: "Provider selector",
+                detail: "Choose Codex or Claude to switch the provider shown in the popover and menu bar."
+            )
+
+            Divider()
+                .overlay(palette.divider)
+                .padding(.leading, 40)
+
+            HelpGuideRow(
+                systemName: "key",
+                title: "API usage",
+                detail: "Enable API usage, add an admin key, and set a monthly budget from the key menu."
+            )
+
+            Divider()
+                .overlay(palette.divider)
+                .padding(.leading, 40)
+
+            HelpGuideRow(
+                systemName: "arrow.triangle.2.circlepath",
+                title: "Rotation and refresh",
+                detail: "Use Settings to rotate providers, change auto-refresh, and refresh immediately."
+            )
+        }
+        .background(palette.panelBackground, in: RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(palette.panelStroke, lineWidth: 1)
+        )
+    }
+
     private var header: some View {
         HStack(spacing: 9) {
             ProviderLogoView(provider: selectedSnapshot.provider, size: 22, foregroundColor: palette.primaryText)
@@ -189,39 +273,98 @@ struct PopoverView: View {
         .padding(.trailing, 62)
     }
 
+    private var helpHeader: some View {
+        HStack(spacing: 9) {
+            Image(systemName: "questionmark.circle.fill")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(palette.primaryText)
+                .frame(width: 22, height: 22)
+                .padding(5)
+                .background(palette.iconBackground, in: RoundedRectangle(cornerRadius: 7))
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Help")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(palette.primaryText)
+                Text(AppMetadata.versionLine)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(palette.secondaryText)
+            }
+
+            Spacer()
+        }
+        .padding(.trailing, 62)
+    }
+
     private var popoverControls: some View {
         HStack(spacing: 8) {
-            Button {
-                toggleSettings()
-            } label: {
-                Image(systemName: isShowingSettings ? "arrow.left" : "gearshape")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(palette.controlIcon)
-                    .frame(width: 18, height: 18)
-                    .contentShape(Rectangle())
+            if !isShowingSettings && !isShowingHelp {
+                PopoverIconButton(
+                    systemName: "questionmark.circle",
+                    help: "Help",
+                    action: showHelp
+                )
             }
-            .buttonStyle(.plain)
-            .help(isShowingSettings ? "Back to usage" : "Settings")
-            .accessibilityLabel(isShowingSettings ? "Back to usage" : "Settings")
 
-            Button {
-                onQuit()
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundStyle(palette.controlIcon)
-                    .frame(width: 18, height: 18)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .help("Quit")
+            PopoverIconButton(
+                systemName: isShowingSettings || isShowingHelp ? "arrow.left" : "gearshape",
+                help: isShowingSettings || isShowingHelp ? "Back to usage" : "Settings",
+                action: toggleSettings
+            )
+
+            PopoverIconButton(
+                systemName: "xmark",
+                help: "Quit",
+                action: onQuit
+            )
         }
         .padding(.top, 16)
         .padding(.trailing, 16)
     }
 
     private func toggleSettings() {
-        isShowingSettings.toggle()
+        activeTourStep = nil
+        if isShowingSettings || isShowingHelp {
+            isShowingSettings = false
+            isShowingHelp = false
+        } else {
+            isShowingSettings = true
+            isShowingHelp = false
+        }
+    }
+
+    private func showHelp() {
+        activeTourStep = nil
+        isShowingSettings = false
+        isShowingHelp = true
+    }
+
+    private func startTour() {
+        showTourStep(.provider)
+    }
+
+    private func showPreviousTourStep() {
+        let previousIndex = max(0, activeTourIndex - 1)
+        showTourStep(HelpTourStep.allCases[previousIndex])
+    }
+
+    private func showNextTourStep() {
+        let nextIndex = activeTourIndex + 1
+        guard nextIndex < HelpTourStep.allCases.count else {
+            endTour()
+            return
+        }
+        showTourStep(HelpTourStep.allCases[nextIndex])
+    }
+
+    private func showTourStep(_ step: HelpTourStep) {
+        isShowingHelp = false
+        isShowingSettings = step.showsSettings
+        activeTourStep = step
+    }
+
+    private func endTour() {
+        activeTourStep = nil
     }
 
     private var menuBarProviderBinding: Binding<ProviderID> {
@@ -396,6 +539,244 @@ private extension EnvironmentValues {
     var popoverPalette: PopoverPalette {
         get { self[PopoverPaletteKey.self] }
         set { self[PopoverPaletteKey.self] = newValue }
+    }
+}
+
+private enum AppMetadata {
+    private static let fallbackVersion = "0.2.0"
+
+    static var versionLine: String {
+        "\(appName) \(version)"
+    }
+
+    private static var appName: String {
+        string(for: "CFBundleDisplayName") ?? string(for: "CFBundleName") ?? "CapBar"
+    }
+
+    private static var version: String {
+        string(for: "CFBundleShortVersionString") ?? fallbackVersion
+    }
+
+    private static func string(for key: String) -> String? {
+        guard let value = Bundle.main.object(forInfoDictionaryKey: key) as? String else {
+            return nil
+        }
+
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
+private enum HelpTourStep: Int, CaseIterable, Equatable, Identifiable {
+    case provider
+    case menuBarDisplay
+    case apiUsage
+    case settings
+
+    var id: Int { rawValue }
+
+    var showsSettings: Bool {
+        self == .settings
+    }
+
+    var systemName: String {
+        switch self {
+        case .provider:
+            "person.2"
+        case .menuBarDisplay:
+            "menubar.rectangle"
+        case .apiUsage:
+            "key"
+        case .settings:
+            "gearshape"
+        }
+    }
+
+    var title: String {
+        switch self {
+        case .provider:
+            "Pick a provider"
+        case .menuBarDisplay:
+            "Set the menu bar display"
+        case .apiUsage:
+            "Use API rows when needed"
+        case .settings:
+            "Tune settings"
+        }
+    }
+
+    var detail: String {
+        switch self {
+        case .provider:
+            "Use the Codex and Claude buttons to choose which provider CapBar shows."
+        case .menuBarDisplay:
+            "Double-click the subscription limits card to make it the menu bar display for this provider."
+        case .apiUsage:
+            "When API usage is available, double-click API Spend or API Limit to show that row in the menu bar."
+        case .settings:
+            "Use Settings for provider rotation, auto-refresh, low-usage colors, API visibility, and manual refresh."
+        }
+    }
+}
+
+private struct PopoverIconButton: View {
+    let systemName: String
+    let help: String
+    let action: () -> Void
+    @Environment(\.popoverPalette) private var palette
+
+    var body: some View {
+        Button(action: action) {
+            Image(systemName: systemName)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(palette.controlIcon)
+                .frame(width: 18, height: 18)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .frame(width: 18, height: 18)
+        .help(help)
+        .accessibilityLabel(help)
+    }
+}
+
+private struct HelpTourStartRow: View {
+    let onStart: () -> Void
+    @Environment(\.popoverPalette) private var palette
+
+    var body: some View {
+        Button(action: onStart) {
+            HStack(spacing: 10) {
+                SettingsIcon(systemName: "play.circle.fill")
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Start quick tour")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(palette.primaryText)
+                    Text("A transparent step-by-step guide through the popover.")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(palette.secondaryText)
+                        .lineLimit(2)
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 10, weight: .semibold))
+                    .foregroundStyle(palette.controlIcon)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 12)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .help("Start quick tour")
+        .accessibilityLabel("Start quick tour")
+    }
+}
+
+private struct HelpGuideRow: View {
+    let systemName: String
+    let title: String
+    let detail: String
+    @Environment(\.popoverPalette) private var palette
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 10) {
+            SettingsIcon(systemName: systemName)
+                .padding(.top, 1)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(palette.primaryText)
+                Text(detail)
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(palette.secondaryText)
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 12)
+    }
+}
+
+private struct GuidedTourOverlay: View {
+    let step: HelpTourStep
+    let currentStep: Int
+    let stepCount: Int
+    let onBack: () -> Void
+    let onNext: () -> Void
+    let onClose: () -> Void
+
+    @Environment(\.popoverPalette) private var palette
+
+    private var isFirstStep: Bool {
+        currentStep <= 1
+    }
+
+    private var isLastStep: Bool {
+        currentStep >= stepCount
+    }
+
+    var body: some View {
+        ZStack(alignment: .bottom) {
+            Color.black.opacity(0.16)
+                .allowsHitTesting(false)
+
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    SettingsIcon(systemName: step.systemName)
+
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(step.title)
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(palette.primaryText)
+                        Text("\(currentStep) of \(stepCount)")
+                            .font(.system(size: 10.5, weight: .medium))
+                            .foregroundStyle(palette.tertiaryText)
+                    }
+
+                    Spacer()
+                }
+
+                Text(step.detail)
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(palette.secondaryText)
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
+
+                HStack(spacing: 8) {
+                    Button("Skip", action: onClose)
+                        .buttonStyle(.plain)
+                        .foregroundStyle(palette.secondaryText)
+
+                    Spacer()
+
+                    if !isFirstStep {
+                        Button("Back", action: onBack)
+                            .controlSize(.small)
+                    }
+
+                    Button(isLastStep ? "Done" : "Next", action: onNext)
+                        .controlSize(.small)
+                        .keyboardShortcut(.defaultAction)
+                }
+                .font(.system(size: 12, weight: .semibold))
+            }
+            .padding(12)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(palette.panelStroke, lineWidth: 1)
+            )
+            .shadow(color: .black.opacity(0.14), radius: 12, y: 4)
+            .padding(12)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 }
 

@@ -321,11 +321,12 @@ The generated app has `LSUIElement` enabled, so it runs as a menu bar accessory 
 3. Choose `Codex` or `Claude` in the provider selector.
 4. Use the refresh button to update immediately.
 5. Use the login button to open the provider's CLI login flow in Terminal.
-6. Click the gear button to open settings.
-7. Choose a provider rotation interval, or leave rotation set to `Off`.
-8. Choose an auto-refresh interval, or set auto-refresh to `Manual`.
-9. Toggle low-usage colors on or off.
-10. Click `X` to fully quit the app.
+6. Click `?` to open Help/About or start the quick tour.
+7. Click the gear button to open settings.
+8. Choose a provider rotation interval, or leave rotation set to `Off`.
+9. Choose an auto-refresh interval, or set auto-refresh to `Manual`.
+10. Toggle low-usage colors on or off.
+11. Click `X` to fully quit the app.
 
 The selected provider controls what appears in the menu bar. Double-click a provider field to choose what that provider shows: the subscription limits panel, the API spend row, or the API monthly limit row when a manual monthly budget is set. The popover always lets you switch between supported providers.
 
