@@ -169,6 +169,7 @@ private struct StatusAPILimitStrip: View {
                     .frame(width: 59, alignment: .leading)
                     .lineLimit(1)
                     .minimumScaleFactor(0.58)
+                    .offset(y: 0.7)
             }
             .frame(width: 67, height: 9, alignment: .leading)
         }
