@@ -305,7 +305,7 @@ NOTARY_KEYCHAIN_PROFILE="notarytool-profile-name" \
 scripts/package_app.sh
 ```
 
-2. Create a GitHub Release, for example `v0.2.0`.
+2. Create a GitHub Release, for example `v0.3.0`.
 3. Upload this file as the downloadable macOS asset:
 
 ```text

@@ -552,7 +552,7 @@ private extension EnvironmentValues {
 }
 
 private enum AppMetadata {
-    private static let fallbackVersion = "0.2.0"
+    private static let fallbackVersion = "0.3.0"
 
     static var versionLine: String {
         "\(appName) \(version)"
