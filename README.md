@@ -18,6 +18,10 @@ CapBar is intentionally small: it does not proxy requests, store usage history, 
   <img src="docs/images/demo-2.png" width="600" alt="CapBar provider popover view">
 </p>
 
+<p align="center">
+  <img src="docs/images/demo-3.png" width="600" alt="CapBar settings view">
+</p>
+
 ## Installation
 
 ### Option 1: Download The App
