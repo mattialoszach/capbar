@@ -93,6 +93,12 @@ struct APIAccountReader {
         return calendar.date(from: components) ?? date
     }
 
+    static func startOfDayUTC(for date: Date) -> Date {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "UTC") ?? .current
+        return calendar.startOfDay(for: date)
+    }
+
     static func startOfNextDayUTC(for date: Date) -> Date {
         var calendar = Calendar(identifier: .gregorian)
         calendar.timeZone = TimeZone(identifier: "UTC") ?? .current
@@ -141,6 +147,17 @@ struct APIAccountReader {
         case .claude:
             switch await fetchCostTotals(apiKey: apiKey, now: now) {
             case let .success(month, today):
+                if today == nil,
+                   let currentDayEstimate = await fetchAnthropicCurrentDayUsageEstimate(apiKey: apiKey, now: now),
+                   currentDayEstimate > 0 {
+                    return .success(
+                        APISpendSummary(
+                            monthToDateUSD: month + currentDayEstimate,
+                            todayUSD: currentDayEstimate,
+                            includesEstimatedCurrentDay: true
+                        )
+                    )
+                }
                 return .success(APISpendSummary(monthToDateUSD: month, todayUSD: today))
             case let .unauthorized(message):
                 return .unauthorized(message: message)
@@ -234,6 +251,35 @@ struct APIAccountReader {
         }
 
         return .unavailable
+    }
+
+    private func fetchAnthropicCurrentDayUsageEstimate(apiKey: String, now: Date) async -> Double? {
+        let dayStart = Self.startOfDayUTC(for: now)
+        guard now > dayStart else { return 0 }
+
+        var components = URLComponents(string: "https://api.anthropic.com/v1/organizations/usage_report/messages")
+        components?.queryItems = [
+            URLQueryItem(name: "starting_at", value: ISO8601DateFormatter().string(from: dayStart)),
+            URLQueryItem(name: "ending_at", value: ISO8601DateFormatter().string(from: now)),
+            URLQueryItem(name: "bucket_width", value: "1m"),
+            URLQueryItem(name: "limit", value: "1440"),
+            URLQueryItem(name: "group_by[]", value: "model"),
+            URLQueryItem(name: "group_by[]", value: "service_tier"),
+            URLQueryItem(name: "group_by[]", value: "inference_geo")
+        ]
+        guard let url = components?.url else { return nil }
+
+        var request = URLRequest(url: url, timeoutInterval: 10)
+        request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
+        request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              let httpResponse = response as? HTTPURLResponse,
+              httpResponse.statusCode == 200 else {
+            return nil
+        }
+        return APISpendParser.anthropicUsageEstimate(from: data, now: now)
     }
 
     private func fetchOpenAICredits(apiKey: String) async -> APICreditGrants? {
@@ -414,6 +460,27 @@ enum APISpendParser {
         )
     }
 
+    static func anthropicUsageEstimate(from data: Data, now: Date) -> Double? {
+        guard let report = try? JSONDecoder().decode(AnthropicUsageReport.self, from: data) else { return nil }
+
+        var total = 0.0
+        for bucket in report.data {
+            if let startingAt = bucket.startingAt,
+               let start = DateParser.parse(startingAt),
+               start > now {
+                continue
+            }
+
+            for result in bucket.results {
+                guard let cost = anthropicUsageCost(for: result, now: now) else {
+                    return nil
+                }
+                total += cost
+            }
+        }
+        return total
+    }
+
     static func openAICredits(from data: Data) -> APICreditGrants? {
         struct CreditGrants: Decodable {
             let totalGranted: Double?
@@ -475,6 +542,84 @@ enum APISpendParser {
             nextPage: report.hasMore == true ? report.nextPage : nil
         )
     }
+
+    private static func anthropicUsageCost(for result: AnthropicUsageReport.Result, now: Date) -> Double? {
+        let uncachedInput = result.uncachedInputTokens ?? 0
+        let cacheCreation5m = result.cacheCreation?.ephemeral5mInputTokens ?? result.cacheCreationInputTokens ?? 0
+        let cacheCreation1h = result.cacheCreation?.ephemeral1hInputTokens ?? 0
+        let cacheRead = result.cacheReadInputTokens ?? 0
+        let output = result.outputTokens ?? 0
+        let billableTokens = uncachedInput + cacheCreation5m + cacheCreation1h + cacheRead + output
+        let webSearchCost = (result.serverToolUse?.webSearchRequests ?? 0) * 0.01
+
+        guard billableTokens > 0 else {
+            return webSearchCost
+        }
+        guard let model = result.model,
+              let pricing = anthropicModelPricing(for: model, now: now) else {
+            return nil
+        }
+
+        let serviceTierMultiplier = result.serviceTier == "batch" ? 0.5 : 1.0
+        let inferenceGeoMultiplier = result.inferenceGeo == "us" ? 1.1 : 1.0
+        let tokenCost = (
+            uncachedInput * pricing.inputPerMillion +
+            cacheCreation5m * pricing.inputPerMillion * 1.25 +
+            cacheCreation1h * pricing.inputPerMillion * 2.0 +
+            cacheRead * pricing.inputPerMillion * 0.1 +
+            output * pricing.outputPerMillion
+        ) / 1_000_000
+
+        return tokenCost * serviceTierMultiplier * inferenceGeoMultiplier + webSearchCost
+    }
+
+    private static func anthropicModelPricing(for model: String, now: Date) -> AnthropicModelPricing? {
+        let normalized = model.lowercased()
+
+        if normalized.contains("fable") || normalized.contains("mythos") {
+            return AnthropicModelPricing(inputPerMillion: 10, outputPerMillion: 50)
+        }
+
+        if normalized.contains("opus") {
+            if normalized.contains("4-5") ||
+                normalized.contains("4-6") ||
+                normalized.contains("4-7") ||
+                normalized.contains("4-8") {
+                return AnthropicModelPricing(inputPerMillion: 5, outputPerMillion: 25)
+            }
+            return AnthropicModelPricing(inputPerMillion: 15, outputPerMillion: 75)
+        }
+
+        if normalized.contains("sonnet") {
+            if normalized.contains("sonnet-5") || normalized.contains("5-sonnet") {
+                return now < sonnet5PromotionalPricingEnd
+                    ? AnthropicModelPricing(inputPerMillion: 2, outputPerMillion: 10)
+                    : AnthropicModelPricing(inputPerMillion: 3, outputPerMillion: 15)
+            }
+            return AnthropicModelPricing(inputPerMillion: 3, outputPerMillion: 15)
+        }
+
+        if normalized.contains("haiku") {
+            if normalized.contains("4-5") {
+                return AnthropicModelPricing(inputPerMillion: 1, outputPerMillion: 5)
+            }
+            if normalized.contains("3-5") {
+                return AnthropicModelPricing(inputPerMillion: 0.8, outputPerMillion: 4)
+            }
+            return AnthropicModelPricing(inputPerMillion: 0.25, outputPerMillion: 1.25)
+        }
+
+        return nil
+    }
+
+    private static var sonnet5PromotionalPricingEnd: Date {
+        DateParser.parse("2026-09-01T00:00:00Z") ?? .distantPast
+    }
+}
+
+private struct AnthropicModelPricing {
+    let inputPerMillion: Double
+    let outputPerMillion: Double
 }
 
 private enum APISpendFetchResult {
@@ -546,6 +691,64 @@ private struct AnthropicCostReport: Decodable {
         case data
         case hasMore = "has_more"
         case nextPage = "next_page"
+    }
+}
+
+private struct AnthropicUsageReport: Decodable {
+    let data: [Bucket]
+
+    struct Bucket: Decodable {
+        let startingAt: String?
+        let endingAt: String?
+        let results: [Result]
+
+        enum CodingKeys: String, CodingKey {
+            case startingAt = "starting_at"
+            case endingAt = "ending_at"
+            case results
+        }
+    }
+
+    struct Result: Decodable {
+        let uncachedInputTokens: Double?
+        let cacheCreation: CacheCreation?
+        let cacheCreationInputTokens: Double?
+        let cacheReadInputTokens: Double?
+        let outputTokens: Double?
+        let serverToolUse: ServerToolUse?
+        let model: String?
+        let serviceTier: String?
+        let inferenceGeo: String?
+
+        enum CodingKeys: String, CodingKey {
+            case uncachedInputTokens = "uncached_input_tokens"
+            case cacheCreation = "cache_creation"
+            case cacheCreationInputTokens = "cache_creation_input_tokens"
+            case cacheReadInputTokens = "cache_read_input_tokens"
+            case outputTokens = "output_tokens"
+            case serverToolUse = "server_tool_use"
+            case model
+            case serviceTier = "service_tier"
+            case inferenceGeo = "inference_geo"
+        }
+    }
+
+    struct CacheCreation: Decodable {
+        let ephemeral1hInputTokens: Double?
+        let ephemeral5mInputTokens: Double?
+
+        enum CodingKeys: String, CodingKey {
+            case ephemeral1hInputTokens = "ephemeral_1h_input_tokens"
+            case ephemeral5mInputTokens = "ephemeral_5m_input_tokens"
+        }
+    }
+
+    struct ServerToolUse: Decodable {
+        let webSearchRequests: Double?
+
+        enum CodingKeys: String, CodingKey {
+            case webSearchRequests = "web_search_requests"
+        }
     }
 }
 

@@ -163,7 +163,7 @@ Besides subscription limits, CapBar can show your API platform spend for each pr
 
 In the popover, the `Anthropic API` / `OpenAI API` panel accepts an API key and then shows what your key is allowed to read:
 
-- **Anthropic**: requires an Admin API key (`sk-ant-admin...`), created in the Claude Console under organization settings. CapBar queries `GET https://api.anthropic.com/v1/organizations/cost_report` and shows month-to-date and today's spend. The Admin API is unavailable for individual accounts — your Console account must belong to an organization, and regular API keys cannot read billing data.
+- **Anthropic**: requires an Admin API key (`sk-ant-admin...`), created in the Claude Console under organization settings. CapBar queries `GET https://api.anthropic.com/v1/organizations/cost_report` and shows month-to-date and today's spend. If Anthropic's daily cost report has not published the current UTC day yet, CapBar estimates today from `GET https://api.anthropic.com/v1/organizations/usage_report/messages` and folds that estimate into the month-to-date total until the official cost bucket appears. The Admin API is unavailable for individual accounts — your Console account must belong to an organization, and regular API keys cannot read billing data.
 - **OpenAI**: CapBar tries two endpoints with whatever key you provide and shows whichever works:
   - `GET https://api.openai.com/v1/organization/costs` — month-to-date and today's spend. Requires an Admin key (`sk-admin-...`) from `platform.openai.com/settings/organization/admin-keys`.
   - `GET https://api.openai.com/v1/dashboard/billing/credit_grants` — remaining prepaid **credit balance**. This is an undocumented legacy endpoint that accepts some regular user API keys (`sk-...`), but not project keys (`sk-proj-...`). It may stop working at any time.
@@ -179,7 +179,7 @@ When spend data is available, the API panel can draw a limit bar (with the same 
 
 A manually set budget always takes precedence over the API-provided limit. If only the credit balance is available (OpenAI legacy keys), the bar shows used credits against the total granted instead.
 
-Keys are stored locally in `~/Library/Application Support/CapBar/api-keys.json` with owner-only file permissions — the same approach the provider CLIs use for their own credentials (`~/.claude/.credentials.json`, `~/.codex/auth.json`). CapBar deliberately avoids the macOS Keychain here: the app is not signed with a stable Apple Developer ID, so every rebuild would trigger a new Keychain access prompt. Keys are only ever sent to the respective provider's API. Spend data is cached locally and refreshed at most every 5 minutes. Remove or replace a key at any time via the panel's `…` menu.
+Keys are stored locally in `~/Library/Application Support/CapBar/api-keys.json` with owner-only file permissions — the same approach the provider CLIs use for their own credentials (`~/.claude/.credentials.json`, `~/.codex/auth.json`). CapBar deliberately avoids the macOS Keychain here: the app is not signed with a stable Apple Developer ID, so every rebuild would trigger a new Keychain access prompt. Keys are only ever sent to the respective provider's API. Spend data is cached locally and refreshed at most once per minute. Remove or replace a key at any time via the panel's `…` menu.
 
 ## Supported Providers
 

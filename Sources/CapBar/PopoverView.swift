@@ -1643,6 +1643,9 @@ private struct APIAccountSection: View {
         case .noKey:
             return "Track API spend"
         case let .spend(summary):
+            if summary.includesEstimatedCurrentDay {
+                return "Spend this month, today estimated"
+            }
             if summary.hasSpend, summary.hasCredits {
                 return "Spend this month"
             } else if summary.hasSpend {
@@ -1678,7 +1681,8 @@ private struct APIAccountSection: View {
     private func trailingDetailText(for summary: APISpendSummary) -> String? {
         if summary.hasSpend {
             if let today = summary.todayUSD {
-                return "Today \(Formatters.usd(today))"
+                let prefix = summary.includesEstimatedCurrentDay ? "Today ~" : "Today "
+                return "\(prefix)\(Formatters.usd(today))"
             }
             return nil
         }

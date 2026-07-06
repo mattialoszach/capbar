@@ -55,6 +55,131 @@ final class APIAccountTests: XCTestCase {
         XCTAssertNil(page.todayUSD)
     }
 
+    func testAnthropicUsageEstimatePricesTokensCacheAndTools() throws {
+        let json = Data(
+            """
+            {
+              "data": [
+                {
+                  "starting_at": "2026-07-06T00:00:00Z",
+                  "ending_at": "2026-07-06T13:00:00Z",
+                  "results": [
+                    {
+                      "uncached_input_tokens": 1000000,
+                      "cache_creation": {
+                        "ephemeral_5m_input_tokens": 100000,
+                        "ephemeral_1h_input_tokens": 50000
+                      },
+                      "cache_read_input_tokens": 200000,
+                      "output_tokens": 500000,
+                      "server_tool_use": { "web_search_requests": 2 },
+                      "model": "claude-haiku-4-5-20251001",
+                      "service_tier": null,
+                      "inference_geo": null
+                    }
+                  ]
+                }
+              ],
+              "has_more": false,
+              "next_page": null
+            }
+            """.utf8
+        )
+        let now = try XCTUnwrap(DateParser.parse("2026-07-06T12:00:00Z"))
+
+        let estimate = try XCTUnwrap(APISpendParser.anthropicUsageEstimate(from: json, now: now))
+
+        XCTAssertEqual(estimate, 3.765, accuracy: 0.0001)
+    }
+
+    func testAnthropicUsageEstimateAppliesBatchAndDataResidencyMultipliers() throws {
+        let json = Data(
+            """
+            {
+              "data": [
+                {
+                  "starting_at": "2026-07-06T00:00:00Z",
+                  "ending_at": "2026-07-06T13:00:00Z",
+                  "results": [
+                    {
+                      "uncached_input_tokens": 1000000,
+                      "output_tokens": 1000000,
+                      "model": "claude-sonnet-4-6-20260217",
+                      "service_tier": "batch",
+                      "inference_geo": "us"
+                    }
+                  ]
+                }
+              ]
+            }
+            """.utf8
+        )
+        let now = try XCTUnwrap(DateParser.parse("2026-07-06T12:00:00Z"))
+
+        let estimate = try XCTUnwrap(APISpendParser.anthropicUsageEstimate(from: json, now: now))
+
+        XCTAssertEqual(estimate, 9.9, accuracy: 0.0001)
+    }
+
+    func testAnthropicUsageEstimateHandlesSonnet5PromotionalPricingCutover() throws {
+        let json = Data(
+            """
+            {
+              "data": [
+                {
+                  "starting_at": "2026-08-31T00:00:00Z",
+                  "ending_at": "2026-08-31T13:00:00Z",
+                  "results": [
+                    {
+                      "uncached_input_tokens": 1000000,
+                      "output_tokens": 1000000,
+                      "model": "claude-sonnet-5-20260629"
+                    }
+                  ]
+                }
+              ]
+            }
+            """.utf8
+        )
+        let beforeCutover = try XCTUnwrap(DateParser.parse("2026-08-31T12:00:00Z"))
+        let afterCutover = try XCTUnwrap(DateParser.parse("2026-09-01T12:00:00Z"))
+
+        XCTAssertEqual(
+            try XCTUnwrap(APISpendParser.anthropicUsageEstimate(from: json, now: beforeCutover)),
+            12,
+            accuracy: 0.0001
+        )
+        XCTAssertEqual(
+            try XCTUnwrap(APISpendParser.anthropicUsageEstimate(from: json, now: afterCutover)),
+            18,
+            accuracy: 0.0001
+        )
+    }
+
+    func testAnthropicUsageEstimateSkipsUnknownBillableModel() throws {
+        let json = Data(
+            """
+            {
+              "data": [
+                {
+                  "starting_at": "2026-07-06T00:00:00Z",
+                  "ending_at": "2026-07-06T13:00:00Z",
+                  "results": [
+                    {
+                      "uncached_input_tokens": 1,
+                      "model": "claude-unknown-1"
+                    }
+                  ]
+                }
+              ]
+            }
+            """.utf8
+        )
+        let now = try XCTUnwrap(DateParser.parse("2026-07-06T12:00:00Z"))
+
+        XCTAssertNil(APISpendParser.anthropicUsageEstimate(from: json, now: now))
+    }
+
     func testOpenAICostPageSumsDollarsAndDetectsToday() throws {
         let now = try XCTUnwrap(DateParser.parse("2026-07-02T12:00:00Z"))
         let dayStart = Int(now.timeIntervalSince1970) - 12 * 3600
@@ -121,6 +246,12 @@ final class APIAccountTests: XCTestCase {
         XCTAssertEqual(monthStart, DateParser.parse("2026-07-01T00:00:00Z"))
     }
 
+    func testStartOfDayUTC() throws {
+        let date = try XCTUnwrap(DateParser.parse("2026-07-02T18:30:00Z"))
+
+        XCTAssertEqual(APIAccountReader.startOfDayUTC(for: date), DateParser.parse("2026-07-02T00:00:00Z"))
+    }
+
     func testStartOfNextDayUTC() throws {
         let date = try XCTUnwrap(DateParser.parse("2026-07-02T12:00:00Z"))
 
@@ -172,11 +303,27 @@ final class APIAccountTests: XCTestCase {
         )
     }
 
+    func testAPISpendMinimumFetchIntervalIsOneMinute() {
+        XCTAssertEqual(APISpendRetryPolicy.minimumFetchInterval, 60)
+    }
+
     func testSpendSummaryFormatting() {
         let summary = APISpendSummary(monthToDateUSD: 12.349, todayUSD: nil)
 
         XCTAssertEqual(summary.monthToDateText, "$12.35")
         XCTAssertEqual(summary.todayText, "$0.00")
+    }
+
+    func testSpendSummaryDecodesLegacyCacheWithoutEstimateFlag() throws {
+        let json = Data(
+            #"{"monthToDateUSD":12.34,"todayUSD":1.23}"#.utf8
+        )
+
+        let summary = try JSONDecoder().decode(APISpendSummary.self, from: json)
+
+        XCTAssertEqual(summary.monthToDateUSD ?? -1, 12.34, accuracy: 0.0001)
+        XCTAssertEqual(summary.todayUSD ?? -1, 1.23, accuracy: 0.0001)
+        XCTAssertFalse(summary.includesEstimatedCurrentDay)
     }
 
     func testCompactUSDUsesFourSignificantDigitsForLargeValues() {

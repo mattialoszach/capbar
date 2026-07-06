@@ -22,19 +22,41 @@ struct APISpendSummary: Codable, Equatable {
     let creditsRemainingUSD: Double?
     let creditsGrantedUSD: Double?
     let monthlyLimitUSD: Double?
+    let includesEstimatedCurrentDay: Bool
 
     init(
         monthToDateUSD: Double?,
         todayUSD: Double?,
         creditsRemainingUSD: Double? = nil,
         creditsGrantedUSD: Double? = nil,
-        monthlyLimitUSD: Double? = nil
+        monthlyLimitUSD: Double? = nil,
+        includesEstimatedCurrentDay: Bool = false
     ) {
         self.monthToDateUSD = monthToDateUSD
         self.todayUSD = todayUSD
         self.creditsRemainingUSD = creditsRemainingUSD
         self.creditsGrantedUSD = creditsGrantedUSD
         self.monthlyLimitUSD = monthlyLimitUSD
+        self.includesEstimatedCurrentDay = includesEstimatedCurrentDay
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case monthToDateUSD
+        case todayUSD
+        case creditsRemainingUSD
+        case creditsGrantedUSD
+        case monthlyLimitUSD
+        case includesEstimatedCurrentDay
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        monthToDateUSD = try container.decodeIfPresent(Double.self, forKey: .monthToDateUSD)
+        todayUSD = try container.decodeIfPresent(Double.self, forKey: .todayUSD)
+        creditsRemainingUSD = try container.decodeIfPresent(Double.self, forKey: .creditsRemainingUSD)
+        creditsGrantedUSD = try container.decodeIfPresent(Double.self, forKey: .creditsGrantedUSD)
+        monthlyLimitUSD = try container.decodeIfPresent(Double.self, forKey: .monthlyLimitUSD)
+        includesEstimatedCurrentDay = try container.decodeIfPresent(Bool.self, forKey: .includesEstimatedCurrentDay) ?? false
     }
 
     var hasSpend: Bool {
@@ -126,7 +148,7 @@ struct APIAccountSnapshot: Identifiable, Equatable {
 }
 
 enum APISpendRetryPolicy {
-    static let minimumFetchInterval: TimeInterval = 5 * 60
+    static let minimumFetchInterval: TimeInterval = 60
     static let rateLimitRetryInterval: TimeInterval = 15 * 60
     static let transientRetryInterval: TimeInterval = 5 * 60
     static let unauthorizedRetryInterval: TimeInterval = 15 * 60

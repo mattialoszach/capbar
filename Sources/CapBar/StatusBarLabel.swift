@@ -48,12 +48,14 @@ struct StatusBarLabel: View {
 
     private var apiTodayText: String {
         guard let summary = apiSpendSummary, summary.hasSpend else { return "--" }
-        return Formatters.compactUSD(summary.todayUSD ?? 0)
+        let text = Formatters.compactUSD(summary.todayUSD ?? 0)
+        return summary.includesEstimatedCurrentDay ? "~\(text)" : text
     }
 
     private var apiMonthText: String {
         guard let summary = apiSpendSummary, summary.hasSpend else { return "--" }
-        return Formatters.compactUSD(summary.monthToDateUSD ?? 0)
+        let text = Formatters.compactUSD(summary.monthToDateUSD ?? 0)
+        return summary.includesEstimatedCurrentDay ? "~\(text)" : text
     }
 
     private var apiLimitMetric: LimitMetric? {
