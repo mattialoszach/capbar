@@ -760,7 +760,7 @@ private struct GuidedTourOverlay: View {
     }
 
     private var topDescriptionOffset: CGFloat {
-        placesDescriptionAtTop ? 28 : 0
+        placesDescriptionAtTop ? 48 : 0
     }
 
     var body: some View {
