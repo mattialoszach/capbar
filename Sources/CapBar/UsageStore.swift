@@ -1,10 +1,16 @@
 import Foundation
 
+struct UsageSnapshotBatch {
+    let subscriptions: [ProviderSnapshot]
+    let apiAccounts: [APIAccountSnapshot]
+
+    static let empty = UsageSnapshotBatch(subscriptions: [], apiAccounts: [])
+}
+
 @MainActor
 final class UsageStore: ObservableObject {
     @Published private(set) var settings: UsageSettings
-    @Published private(set) var snapshots: [ProviderSnapshot] = []
-    @Published private(set) var apiSnapshots: [APIAccountSnapshot] = []
+    @Published private(set) var snapshotBatch: UsageSnapshotBatch = .empty
     @Published private(set) var checkingAPIKeyProviderIDs: Set<String> = []
     @Published private(set) var removingAPIKeyProviderIDs: Set<String> = []
     @Published private(set) var isRefreshing = false
@@ -20,6 +26,14 @@ final class UsageStore: ObservableObject {
         settings = Self.loadSettings(key: userDefaultsKey)
         refresh()
         configureRefreshTimer()
+    }
+
+    var snapshots: [ProviderSnapshot] {
+        snapshotBatch.subscriptions
+    }
+
+    var apiSnapshots: [APIAccountSnapshot] {
+        snapshotBatch.apiAccounts
     }
 
     var menuBarSnapshot: ProviderSnapshot {
@@ -99,16 +113,19 @@ final class UsageStore: ObservableObject {
 
         let task = Task.detached(priority: .utility) { () -> ([ProviderSnapshot], [APIAccountSnapshot]) in
             let codex = CodexUsageReader().read()
-            let claude = await ClaudeUsageReader().read(force: force)
-            let codexAPI = await APIAccountReader(provider: .codex).read(force: force)
-            let claudeAPI = await APIAccountReader(provider: .claude).read(force: force)
-            return ([codex, claude], [codexAPI, claudeAPI])
+            async let claude = ClaudeUsageReader().read(force: force)
+            async let codexAPI = APIAccountReader(provider: .codex).read(force: force)
+            async let claudeAPI = APIAccountReader(provider: .claude).read(force: force)
+            let (claudeSnapshot, codexAPISnapshot, claudeAPISnapshot) = await (claude, codexAPI, claudeAPI)
+            return ([codex, claudeSnapshot], [codexAPISnapshot, claudeAPISnapshot])
         }
 
         Task { @MainActor [weak self] in
             let (snapshots, apiSnapshots) = await task.value
-            self?.snapshots = snapshots
-            self?.apiSnapshots = apiSnapshots
+            self?.snapshotBatch = UsageSnapshotBatch(
+                subscriptions: snapshots,
+                apiAccounts: apiSnapshots
+            )
             if let self {
                 let stillPendingChecks = self.pendingAPIKeyCheckProviderIDs
                 let stillPendingRemovals = self.pendingAPIKeyRemovalProviderIDs

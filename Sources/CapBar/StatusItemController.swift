@@ -8,6 +8,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
     private let statusItem: NSStatusItem
     private let popover = NSPopover()
     private let hostingView: NSHostingView<StatusBarLabel>
+    private var renderedModel: StatusBarRenderModel
     private var cancellables = Set<AnyCancellable>()
     private var providerRotationTimer: Timer?
     private var frozenStatusItemLength: CGFloat?
@@ -18,15 +19,15 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         statusItem = NSStatusBar.system.statusItem(
             withLength: Self.statusItemLength(for: store.menuBarDisplayMode)
         )
-        hostingView = NSHostingView(
-            rootView: StatusBarLabel(
-                subscriptionSnapshot: store.menuBarSnapshot,
-                apiSnapshot: store.menuBarAPISnapshot,
-                apiMonthlyBudgetUSD: store.menuBarAPIMonthlyBudgetUSD,
-                displayMode: store.menuBarDisplayMode,
-                usesExpandedLayout: false
-            )
+        let initialModel = StatusBarRenderModel(
+            subscriptionSnapshot: store.menuBarSnapshot,
+            apiSnapshot: store.menuBarAPISnapshot,
+            apiMonthlyBudgetUSD: store.menuBarAPIMonthlyBudgetUSD,
+            displayMode: store.menuBarDisplayMode,
+            usesExpandedLayout: false
         )
+        renderedModel = initialModel
+        hostingView = NSHostingView(rootView: StatusBarLabel(model: initialModel))
         super.init()
 
         configureStatusButton()
@@ -70,8 +71,8 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
     }
 
     private func bindStore() {
-        store.$snapshots
-            .combineLatest(store.$apiSnapshots, store.$settings)
+        store.$snapshotBatch
+            .combineLatest(store.$settings)
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 self?.updateStatusBarLabel()
@@ -100,13 +101,22 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         if statusItem.length != statusItemLength {
             statusItem.length = statusItemLength
         }
-        hostingView.rootView = StatusBarLabel(
+
+        let model = StatusBarRenderModel(
             subscriptionSnapshot: store.menuBarSnapshot,
             apiSnapshot: store.menuBarAPISnapshot,
             apiMonthlyBudgetUSD: store.menuBarAPIMonthlyBudgetUSD,
             displayMode: store.menuBarDisplayMode,
             usesExpandedLayout: frozenStatusItemLength != nil
         )
+        guard model != renderedModel else { return }
+        renderedModel = model
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0
+            context.allowsImplicitAnimation = false
+            hostingView.rootView = StatusBarLabel(model: model)
+        }
     }
 
     private static func statusItemLength(for displayMode: MenuBarDisplayMode) -> CGFloat {

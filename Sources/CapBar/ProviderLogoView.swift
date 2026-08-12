@@ -2,6 +2,12 @@ import AppKit
 import SwiftUI
 
 struct ProviderLogoView: View {
+    private static let logoImages: [ProviderID: NSImage] = Dictionary(
+        uniqueKeysWithValues: ProviderID.allCases.compactMap { provider in
+            loadLogo(for: provider).map { (provider, $0) }
+        }
+    )
+
     let provider: ProviderID
     var size: CGFloat = 16
     var foregroundColor: Color = .white
@@ -24,6 +30,10 @@ struct ProviderLogoView: View {
     }
 
     private var logoImage: NSImage? {
+        Self.logoImages[provider]
+    }
+
+    private static func loadLogo(for provider: ProviderID) -> NSImage? {
         if let url = Bundle.module.url(
             forResource: provider.logoResourceName,
             withExtension: "png",

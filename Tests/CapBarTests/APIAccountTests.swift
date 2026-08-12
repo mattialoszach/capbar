@@ -303,8 +303,42 @@ final class APIAccountTests: XCTestCase {
         )
     }
 
-    func testAPISpendMinimumFetchIntervalIsOneMinute() {
-        XCTAssertEqual(APISpendRetryPolicy.minimumFetchInterval, 60)
+    func testAPISpendMinimumFetchIntervalIsFiveMinutes() {
+        XCTAssertEqual(APISpendRetryPolicy.minimumFetchInterval, 5 * 60)
+    }
+
+    func testOpenAILegacyEndpointsAreSkippedForAdminKeys() {
+        XCTAssertFalse(
+            OpenAILegacyRetryPolicy.shouldProbe(
+                apiKey: "sk-admin-test",
+                failureCount: 0,
+                force: true
+            )
+        )
+    }
+
+    func testOpenAILegacyEndpointFailuresOpenOnlyOnManualRefresh() {
+        XCTAssertTrue(
+            OpenAILegacyRetryPolicy.shouldProbe(
+                apiKey: "sk-user-test",
+                failureCount: 1,
+                force: false
+            )
+        )
+        XCTAssertFalse(
+            OpenAILegacyRetryPolicy.shouldProbe(
+                apiKey: "sk-user-test",
+                failureCount: 2,
+                force: false
+            )
+        )
+        XCTAssertTrue(
+            OpenAILegacyRetryPolicy.shouldProbe(
+                apiKey: "sk-user-test",
+                failureCount: 2,
+                force: true
+            )
+        )
     }
 
     func testSpendSummaryFormatting() {

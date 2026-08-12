@@ -71,6 +71,52 @@ final class CodexUsageReaderTests: XCTestCase {
         XCTAssertEqual(snapshot.current?.usedPercent, 55)
     }
 
+    func testStopsScanningWhenByteBudgetIsExhausted() throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        let log = fixture.sessions.appendingPathComponent("large.jsonl")
+        let event = rateLimitEvent(timestamp: "2026-08-12T09:00:00Z", usedPercent: 55)
+        let trailingData = #"{"payload":{"text":""# + String(repeating: "x", count: 80_000) + #""}}"#
+        try Data("\(event)\n\(trailingData)\n".utf8).write(to: log)
+
+        let snapshot = CodexUsageReader(
+            sessionsURL: fixture.sessions,
+            authURL: fixture.auth,
+            scanByteLimit: 32 * 1024
+        ).read()
+
+        XCTAssertNil(snapshot.current?.usedPercent)
+    }
+
+    func testStopsScanningAfterFileLimit() throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+
+        let older = fixture.sessions.appendingPathComponent("older.jsonl")
+        try writeLog(
+            at: older,
+            timestamp: "2026-08-12T08:00:00Z",
+            usedPercent: 21,
+            modifiedAt: Date(timeIntervalSince1970: 1_786_522_000)
+        )
+
+        let newest = fixture.sessions.appendingPathComponent("newest.jsonl")
+        try Data(#"{"timestamp":"2026-08-12T09:00:00Z","payload":{"type":"message"}}"#.utf8).write(to: newest)
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date(timeIntervalSince1970: 1_786_526_000)],
+            ofItemAtPath: newest.path
+        )
+
+        let snapshot = CodexUsageReader(
+            sessionsURL: fixture.sessions,
+            authURL: fixture.auth,
+            scanFileLimit: 1
+        ).read()
+
+        XCTAssertNil(snapshot.current?.usedPercent)
+    }
+
     private func makeFixture() throws -> (root: URL, sessions: URL, auth: URL) {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("CapBarCodexUsageReaderTests-\(UUID().uuidString)")

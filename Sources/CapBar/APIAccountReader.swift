@@ -23,14 +23,20 @@ struct APIAccountReader {
         let keyFingerprint = fingerprint(for: apiKey)
         let keyChanged = readCacheState().map { $0.keyFingerprint != keyFingerprint } ?? false
         let cached = keyChanged ? nil : readCacheState()
-        let retryUnavailableWithoutSummary = cached?.summary == nil && cached?.lastFailure == .unavailable
-        let canFetch = force || keyChanged || retryUnavailableWithoutSummary || (cached?.nextFetchAt.map { $0 <= now } ?? true)
+        let canFetch = force || keyChanged || (cached?.nextFetchAt.map { $0 <= now } ?? true)
 
         if canFetch == false, let cached {
             return snapshot(from: cached, now: now)
         }
 
-        switch await fetchSpend(apiKey: apiKey, now: now) {
+        let fetchOutcome = await fetchSpend(
+            apiKey: apiKey,
+            now: now,
+            openAILegacyFailureCount: cached?.openAILegacyFailureCount ?? 0,
+            forceLegacyProbe: force || keyChanged
+        )
+
+        switch fetchOutcome.result {
         case let .success(summary):
             writeCacheState(
                 APISpendCacheState(
@@ -39,7 +45,8 @@ struct APIAccountReader {
                     nextFetchAt: now.addingTimeInterval(APISpendRetryPolicy.minimumFetchInterval),
                     keyFingerprint: keyFingerprint,
                     lastFailure: nil,
-                    lastFailureDetail: nil
+                    lastFailureDetail: nil,
+                    openAILegacyFailureCount: fetchOutcome.openAILegacyFailureCount
                 )
             )
             return APIAccountSnapshot(provider: provider, status: .spend(summary), fetchedAt: now)
@@ -51,7 +58,8 @@ struct APIAccountReader {
                     nextFetchAt: now.addingTimeInterval(APISpendRetryPolicy.unauthorizedRetryInterval),
                     keyFingerprint: keyFingerprint,
                     lastFailure: .unauthorized,
-                    lastFailureDetail: message
+                    lastFailureDetail: message,
+                    openAILegacyFailureCount: fetchOutcome.openAILegacyFailureCount
                 )
             )
             return APIAccountSnapshot(provider: provider, status: .invalidKey(detail: message), fetchedAt: nil)
@@ -63,7 +71,8 @@ struct APIAccountReader {
                     nextFetchAt: now.addingTimeInterval(APISpendRetryPolicy.rateLimitRetryInterval),
                     keyFingerprint: keyFingerprint,
                     lastFailure: .rateLimited,
-                    lastFailureDetail: nil
+                    lastFailureDetail: nil,
+                    openAILegacyFailureCount: fetchOutcome.openAILegacyFailureCount
                 )
             )
             return fallbackSnapshot(cached: cached, now: now, status: .rateLimited)
@@ -75,7 +84,8 @@ struct APIAccountReader {
                     nextFetchAt: now.addingTimeInterval(APISpendRetryPolicy.transientRetryInterval),
                     keyFingerprint: keyFingerprint,
                     lastFailure: .unavailable,
-                    lastFailureDetail: nil
+                    lastFailureDetail: nil,
+                    openAILegacyFailureCount: fetchOutcome.openAILegacyFailureCount
                 )
             )
             return fallbackSnapshot(cached: cached, now: now, status: .unavailable)
@@ -142,7 +152,12 @@ struct APIAccountReader {
         return APIAccountSnapshot(provider: provider, status: status, fetchedAt: nil)
     }
 
-    private func fetchSpend(apiKey: String, now: Date) async -> APISpendFetchResult {
+    private func fetchSpend(
+        apiKey: String,
+        now: Date,
+        openAILegacyFailureCount: Int,
+        forceLegacyProbe: Bool
+    ) async -> APISpendFetchOutcome {
         switch provider {
         case .claude:
             switch await fetchCostTotals(apiKey: apiKey, now: now) {
@@ -150,62 +165,77 @@ struct APIAccountReader {
                 if today == nil,
                    let currentDayEstimate = await fetchAnthropicCurrentDayUsageEstimate(apiKey: apiKey, now: now),
                    currentDayEstimate > 0 {
-                    return .success(
-                        APISpendSummary(
+                    return APISpendFetchOutcome(
+                        result: .success(APISpendSummary(
                             monthToDateUSD: month + currentDayEstimate,
                             todayUSD: currentDayEstimate,
                             includesEstimatedCurrentDay: true
-                        )
+                        )),
+                        openAILegacyFailureCount: nil
                     )
                 }
-                return .success(APISpendSummary(monthToDateUSD: month, todayUSD: today))
+                return APISpendFetchOutcome(
+                    result: .success(APISpendSummary(monthToDateUSD: month, todayUSD: today)),
+                    openAILegacyFailureCount: nil
+                )
             case let .unauthorized(message):
-                return .unauthorized(message: message)
+                return APISpendFetchOutcome(result: .unauthorized(message: message), openAILegacyFailureCount: nil)
             case .rateLimited:
-                return .rateLimited
+                return APISpendFetchOutcome(result: .rateLimited, openAILegacyFailureCount: nil)
             case .unavailable:
-                return .unavailable
+                return APISpendFetchOutcome(result: .unavailable, openAILegacyFailureCount: nil)
             }
         case .codex:
-            // The org costs endpoint needs an admin key; the legacy credit_grants
-            // and billing/subscription endpoints accept some regular user keys.
-            // Try all, show what works.
-            let costs = await fetchCostTotals(apiKey: apiKey, now: now)
-            let credits = await fetchOpenAICredits(apiKey: apiKey)
-            let monthlyLimit = await fetchOpenAIMonthlyLimit(apiKey: apiKey)
+            // Admin keys use the documented organization costs endpoint. Avoid
+            // probing undocumented dashboard endpoints that cannot add spend data.
+            if OpenAILegacyRetryPolicy.isAdminKey(apiKey) {
+                let result: APISpendFetchResult
+                switch await fetchCostTotals(apiKey: apiKey, now: now) {
+                case let .success(month, today):
+                    result = .success(APISpendSummary(monthToDateUSD: month, todayUSD: today))
+                case let .unauthorized(message):
+                    result = .unauthorized(message: message)
+                case .rateLimited:
+                    result = .rateLimited
+                case .unavailable:
+                    result = .unavailable
+                }
+                return APISpendFetchOutcome(result: result, openAILegacyFailureCount: 0)
+            }
 
-            if case let .success(month, today) = costs {
-                return .success(
-                    APISpendSummary(
-                        monthToDateUSD: month,
-                        todayUSD: today,
-                        creditsRemainingUSD: credits?.remaining,
-                        creditsGrantedUSD: credits?.granted,
-                        monthlyLimitUSD: monthlyLimit
-                    )
+            // Some old user keys can still read these undocumented endpoints.
+            // Stop automatic probes after repeated failures; a manual refresh or
+            // key replacement gives them another chance.
+            guard OpenAILegacyRetryPolicy.shouldProbe(
+                apiKey: apiKey,
+                failureCount: openAILegacyFailureCount,
+                force: forceLegacyProbe
+            ) else {
+                return APISpendFetchOutcome(
+                    result: .unauthorized(message: "OpenAI API spend requires an organization admin key"),
+                    openAILegacyFailureCount: openAILegacyFailureCount
                 )
             }
+
+            async let creditsRequest = fetchOpenAICredits(apiKey: apiKey)
+            async let monthlyLimitRequest = fetchOpenAIMonthlyLimit(apiKey: apiKey)
+            let (credits, monthlyLimit) = await (creditsRequest, monthlyLimitRequest)
             if let credits {
-                return .success(
-                    APISpendSummary(
+                return APISpendFetchOutcome(
+                    result: .success(APISpendSummary(
                         monthToDateUSD: nil,
                         todayUSD: nil,
                         creditsRemainingUSD: credits.remaining,
                         creditsGrantedUSD: credits.granted,
                         monthlyLimitUSD: monthlyLimit
-                    )
+                    )),
+                    openAILegacyFailureCount: 0
                 )
             }
-            switch costs {
-            case .success:
-                return .unavailable
-            case let .unauthorized(message):
-                return .unauthorized(message: message)
-            case .rateLimited:
-                return .rateLimited
-            case .unavailable:
-                return .unavailable
-            }
+            return APISpendFetchOutcome(
+                result: .unauthorized(message: "Use an OpenAI organization admin key to read API spend"),
+                openAILegacyFailureCount: openAILegacyFailureCount + 1
+            )
         }
     }
 
@@ -629,6 +659,11 @@ private enum APISpendFetchResult {
     case unavailable
 }
 
+private struct APISpendFetchOutcome {
+    let result: APISpendFetchResult
+    let openAILegacyFailureCount: Int?
+}
+
 private struct APISpendCacheState: Codable {
     static let currentSchemaVersion = 2
 
@@ -645,6 +680,7 @@ private struct APISpendCacheState: Codable {
     let keyFingerprint: String?
     let lastFailure: Failure?
     let lastFailureDetail: String?
+    let openAILegacyFailureCount: Int?
 
     init(
         summary: APISpendSummary?,
@@ -653,6 +689,7 @@ private struct APISpendCacheState: Codable {
         keyFingerprint: String?,
         lastFailure: Failure?,
         lastFailureDetail: String?,
+        openAILegacyFailureCount: Int? = nil,
         schemaVersion: Int = APISpendCacheState.currentSchemaVersion
     ) {
         self.schemaVersion = schemaVersion
@@ -662,6 +699,7 @@ private struct APISpendCacheState: Codable {
         self.keyFingerprint = keyFingerprint
         self.lastFailure = lastFailure
         self.lastFailureDetail = lastFailureDetail
+        self.openAILegacyFailureCount = openAILegacyFailureCount
     }
 }
 

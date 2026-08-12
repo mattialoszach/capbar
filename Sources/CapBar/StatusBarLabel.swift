@@ -1,93 +1,124 @@
 import SwiftUI
 
-struct StatusBarLabel: View {
-    let subscriptionSnapshot: ProviderSnapshot
-    let apiSnapshot: APIAccountSnapshot
-    let apiMonthlyBudgetUSD: Double?
+struct StatusBarRenderModel: Equatable {
+    struct Limit: Equatable {
+        let fractionRemaining: Double
+        let remainingPercentText: String
+
+        init(metric: LimitMetric?) {
+            fractionRemaining = metric?.fractionRemaining ?? 0
+            remainingPercentText = metric?.remainingPercentText ?? "--%"
+        }
+    }
+
+    let provider: ProviderID
     let displayMode: MenuBarDisplayMode
     let usesExpandedLayout: Bool
+    let currentLimit: Limit
+    let weeklyLimit: Limit
+    let apiTodayText: String
+    let apiMonthText: String
+    let apiLimit: Limit
+    let apiLimitAmountText: String
+    let apiLimitAccessibilityText: String
+
+    init(
+        subscriptionSnapshot: ProviderSnapshot,
+        apiSnapshot: APIAccountSnapshot,
+        apiMonthlyBudgetUSD: Double?,
+        displayMode: MenuBarDisplayMode,
+        usesExpandedLayout: Bool
+    ) {
+        let spendSummary: APISpendSummary?
+        if case let .spend(summary) = apiSnapshot.status {
+            spendSummary = summary
+        } else {
+            spendSummary = nil
+        }
+
+        provider = subscriptionSnapshot.provider
+        self.displayMode = displayMode
+        self.usesExpandedLayout = usesExpandedLayout
+        currentLimit = Limit(metric: subscriptionSnapshot.current)
+        weeklyLimit = Limit(metric: subscriptionSnapshot.weekly)
+        apiTodayText = Self.spendText(spendSummary?.todayUSD, summary: spendSummary)
+        apiMonthText = Self.spendText(spendSummary?.monthToDateUSD, summary: spendSummary)
+        let apiLimitMetric = spendSummary?.manualAPILimitMetric(monthlyBudgetUSD: apiMonthlyBudgetUSD)
+        apiLimit = Limit(metric: apiLimitMetric)
+        apiLimitAccessibilityText = apiLimitMetric?.remainingText ?? "unavailable"
+
+        if let spent = spendSummary?.monthToDateUSD,
+           let limit = apiMonthlyBudgetUSD,
+           limit > 0 {
+            apiLimitAmountText = "\(Formatters.menuBarUSD(spent))/\(Formatters.menuBarUSD(limit))"
+        } else {
+            apiLimitAmountText = "--/--"
+        }
+    }
+
+    private static func spendText(_ amount: Double?, summary: APISpendSummary?) -> String {
+        guard let summary, summary.hasSpend else { return "--" }
+        let text = Formatters.compactUSD(amount ?? 0)
+        return summary.includesEstimatedCurrentDay ? "~\(text)" : text
+    }
+
+    var accessibilityText: String {
+        switch displayMode {
+        case .subscription:
+            return "\(provider.displayName) usage limits"
+        case .api:
+            return "\(provider.displayName) API spend, today \(apiTodayText), month \(apiMonthText)"
+        case .apiLimit:
+            return "\(provider.displayName) API monthly limit, \(apiLimitAccessibilityText), \(apiLimitAmountText)"
+        }
+    }
+}
+
+struct StatusBarLabel: View {
+    let model: StatusBarRenderModel
 
     var body: some View {
         HStack(spacing: 4) {
-            ProviderLogoView(provider: subscriptionSnapshot.provider, size: 16)
+            ProviderLogoView(provider: model.provider, size: 16)
 
             VStack(spacing: 2) {
-                switch displayMode {
+                switch model.displayMode {
                 case .subscription:
-                    StatusLimitStrip(symbol: "clock", metric: subscriptionSnapshot.current)
-                    StatusLimitStrip(symbol: "calendar", metric: subscriptionSnapshot.weekly)
+                    StatusLimitStrip(symbol: "clock", limit: model.currentLimit)
+                    StatusLimitStrip(symbol: "calendar", limit: model.weeklyLimit)
                 case .api:
-                    StatusAPISpendStack(todayText: apiTodayText, monthText: apiMonthText)
+                    StatusAPISpendStack(todayText: model.apiTodayText, monthText: model.apiMonthText)
                 case .apiLimit:
-                    StatusAPILimitStrip(metric: apiLimitMetric, amountText: apiLimitAmountText)
+                    StatusAPILimitStrip(limit: model.apiLimit, amountText: model.apiLimitAmountText)
                 }
             }
         }
         .frame(width: contentWidth, height: 22, alignment: .leading)
         .contentShape(Rectangle())
-        .accessibilityLabel(accessibilityText)
+        .accessibilityLabel(model.accessibilityText)
+        .transaction { transaction in
+            transaction.animation = nil
+            transaction.disablesAnimations = true
+        }
     }
 
     private var contentWidth: CGFloat {
-        if usesExpandedLayout {
+        if model.usesExpandedLayout {
             return 95
         }
 
-        switch displayMode {
+        switch model.displayMode {
         case .subscription, .apiLimit:
             return 95
         case .api:
             return 66
         }
     }
-
-    private var apiSpendSummary: APISpendSummary? {
-        guard case let .spend(summary) = apiSnapshot.status else { return nil }
-        return summary
-    }
-
-    private var apiTodayText: String {
-        guard let summary = apiSpendSummary, summary.hasSpend else { return "--" }
-        let text = Formatters.compactUSD(summary.todayUSD ?? 0)
-        return summary.includesEstimatedCurrentDay ? "~\(text)" : text
-    }
-
-    private var apiMonthText: String {
-        guard let summary = apiSpendSummary, summary.hasSpend else { return "--" }
-        let text = Formatters.compactUSD(summary.monthToDateUSD ?? 0)
-        return summary.includesEstimatedCurrentDay ? "~\(text)" : text
-    }
-
-    private var apiLimitMetric: LimitMetric? {
-        apiSpendSummary?.manualAPILimitMetric(monthlyBudgetUSD: apiMonthlyBudgetUSD)
-    }
-
-    private var apiLimitAmountText: String {
-        guard let summary = apiSpendSummary,
-              let spent = summary.monthToDateUSD,
-              let limit = apiMonthlyBudgetUSD,
-              limit > 0 else {
-            return "--/--"
-        }
-
-        return "\(Formatters.menuBarUSD(spent))/\(Formatters.menuBarUSD(limit))"
-    }
-
-    private var accessibilityText: String {
-        switch displayMode {
-        case .subscription:
-            return "\(subscriptionSnapshot.provider.displayName) usage limits"
-        case .api:
-            return "\(subscriptionSnapshot.provider.displayName) API spend, today \(apiTodayText), month \(apiMonthText)"
-        case .apiLimit:
-            return "\(subscriptionSnapshot.provider.displayName) API monthly limit, \(apiLimitMetric?.remainingText ?? "unavailable"), \(apiLimitAmountText)"
-        }
-    }
 }
 
 private struct StatusLimitStrip: View {
     let symbol: String
-    let metric: LimitMetric?
+    let limit: StatusBarRenderModel.Limit
 
     var body: some View {
         HStack(spacing: 0) {
@@ -96,11 +127,11 @@ private struct StatusLimitStrip: View {
                 .foregroundStyle(.white.opacity(0.72))
                 .frame(width: 8)
 
-            TinyProgressBar(fraction: metric?.fractionRemaining ?? 0)
+            TinyProgressBar(fraction: limit.fractionRemaining)
                 .frame(width: 34, height: 5)
                 .padding(.leading, 3)
 
-            Text(metric?.remainingPercentText ?? "--%")
+            Text(limit.remainingPercentText)
                 .font(.system(size: 9, weight: .semibold, design: .rounded))
                 .monospacedDigit()
                 .foregroundStyle(.white.opacity(0.84))
@@ -151,7 +182,7 @@ private struct StatusAPISpendStrip: View {
 }
 
 private struct StatusAPILimitStrip: View {
-    let metric: LimitMetric?
+    let limit: StatusBarRenderModel.Limit
     let amountText: String
 
     var body: some View {
@@ -162,11 +193,11 @@ private struct StatusAPILimitStrip: View {
                     .foregroundStyle(.white.opacity(0.72))
                     .frame(width: 8)
 
-                TinyProgressBar(fraction: metric?.fractionRemaining ?? 0)
+                TinyProgressBar(fraction: limit.fractionRemaining)
                     .frame(width: 34, height: 5)
                     .padding(.leading, 3)
 
-                Text(metric?.remainingPercentText ?? "--%")
+                Text(limit.remainingPercentText)
                     .font(.system(size: 9, weight: .semibold, design: .rounded))
                     .monospacedDigit()
                     .foregroundStyle(.white.opacity(0.84))

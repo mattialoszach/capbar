@@ -4,7 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 DIST_DIR="$ROOT_DIR/dist"
 APP_NAME="CapBar"
-APP_VERSION="0.3.0"
+APP_VERSION="0.3.1"
 BUNDLE_IDENTIFIER="dev.capbar.CapBar"
 APP_DIR="$DIST_DIR/$APP_NAME.app"
 CONTENTS_DIR="$APP_DIR/Contents"

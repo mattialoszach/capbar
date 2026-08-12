@@ -148,7 +148,7 @@ struct APIAccountSnapshot: Identifiable, Equatable {
 }
 
 enum APISpendRetryPolicy {
-    static let minimumFetchInterval: TimeInterval = 60
+    static let minimumFetchInterval: TimeInterval = 5 * 60
     static let rateLimitRetryInterval: TimeInterval = 15 * 60
     static let transientRetryInterval: TimeInterval = 5 * 60
     static let unauthorizedRetryInterval: TimeInterval = 15 * 60
@@ -156,5 +156,18 @@ enum APISpendRetryPolicy {
 
     static func canUseCache(fetchedAt: Date, now: Date) -> Bool {
         now.timeIntervalSince(fetchedAt) <= maximumCachedSpendAge
+    }
+}
+
+enum OpenAILegacyRetryPolicy {
+    static let maximumAutomaticFailures = 2
+
+    static func isAdminKey(_ apiKey: String) -> Bool {
+        apiKey.hasPrefix("sk-admin-")
+    }
+
+    static func shouldProbe(apiKey: String, failureCount: Int, force: Bool) -> Bool {
+        guard isAdminKey(apiKey) == false else { return false }
+        return force || failureCount < maximumAutomaticFailures
     }
 }

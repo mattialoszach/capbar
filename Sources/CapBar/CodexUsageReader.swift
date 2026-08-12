@@ -1,15 +1,25 @@
 import Foundation
 
 struct CodexUsageReader {
+    private static let scanCache = CodexSessionScanCache()
+    private static let defaultScanByteLimit: UInt64 = 8 * 1024 * 1024
+    private static let defaultScanFileLimit = 64
+
     private let sessionsURL: URL
     private let authURL: URL
+    private let scanByteLimit: UInt64
+    private let scanFileLimit: Int
 
     init(
         sessionsURL: URL = LocalPaths.codexSessions,
-        authURL: URL = LocalPaths.codexAuthFile
+        authURL: URL = LocalPaths.codexAuthFile,
+        scanByteLimit: UInt64 = CodexUsageReader.defaultScanByteLimit,
+        scanFileLimit: Int = CodexUsageReader.defaultScanFileLimit
     ) {
         self.sessionsURL = sessionsURL
         self.authURL = authURL
+        self.scanByteLimit = scanByteLimit
+        self.scanFileLimit = scanFileLimit
     }
 
     func read() -> ProviderSnapshot {
@@ -85,7 +95,7 @@ struct CodexUsageReader {
     private func latestRateLimits() -> CodexRateLimits? {
         guard let enumerator = FileManager.default.enumerator(
             at: sessionsURL,
-            includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
+            includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey, .isRegularFileKey],
             options: [.skipsHiddenFiles]
         ) else {
             return nil
@@ -93,12 +103,14 @@ struct CodexUsageReader {
 
         let decoder = JSONDecoder()
         var latest: (date: Date, limits: CodexRateLimits)?
-        var files: [(url: URL, modifiedAt: Date)] = []
+        var files: [CodexSessionFile] = []
 
         for case let file as URL in enumerator where file.pathExtension == "jsonl" {
-            let values = try? file.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey])
+            let values = try? file.resourceValues(
+                forKeys: [.contentModificationDateKey, .fileSizeKey, .isRegularFileKey]
+            )
             guard values?.isRegularFile == true, let modifiedAt = values?.contentModificationDate else { continue }
-            files.append((file, modifiedAt))
+            files.append(CodexSessionFile(url: file, modifiedAt: modifiedAt, size: UInt64(values?.fileSize ?? 0)))
         }
 
         files.sort { lhs, rhs in
@@ -108,25 +120,51 @@ struct CodexUsageReader {
             return lhs.modifiedAt > rhs.modifiedAt
         }
 
-        for file in files {
+        if let cached = Self.scanCache.value(
+            for: sessionsURL.path,
+            files: files,
+            byteLimit: scanByteLimit,
+            fileLimit: scanFileLimit
+        ) {
+            return cached.limits
+        }
+
+        var remainingScanBytes = scanByteLimit
+
+        for file in files.prefix(max(0, scanFileLimit)) {
+            guard remainingScanBytes > 0 else { break }
+
             // A file cannot contain an event written after its modification date.
             // Once older files predate the best event, they cannot improve it.
             if let latest, file.modifiedAt < latest.date {
                 break
             }
 
-            guard let candidate = latestRateLimits(in: file.url, decoder: decoder) else { continue }
+            guard let candidate = latestRateLimits(
+                in: file.url,
+                decoder: decoder,
+                remainingScanBytes: &remainingScanBytes
+            ) else { continue }
             if latest == nil || candidate.date > latest!.date {
                 latest = candidate
             }
         }
 
-        return latest?.limits
+        let limits = latest?.limits
+        Self.scanCache.store(
+            limits,
+            for: sessionsURL.path,
+            files: files,
+            byteLimit: scanByteLimit,
+            fileLimit: scanFileLimit
+        )
+        return limits
     }
 
     private func latestRateLimits(
         in file: URL,
-        decoder: JSONDecoder
+        decoder: JSONDecoder,
+        remainingScanBytes: inout UInt64
     ) -> (date: Date, limits: CodexRateLimits)? {
         guard let handle = try? FileHandle(forReadingFrom: file) else { return nil }
         defer { try? handle.close() }
@@ -136,9 +174,10 @@ struct CodexUsageReader {
         var unreadBytes = fileSize
         var trailingPartialLine = Data()
 
-        while unreadBytes > 0 {
-            let bytesToRead = min(chunkSize, unreadBytes)
+        while unreadBytes > 0, remainingScanBytes > 0 {
+            let bytesToRead = min(chunkSize, unreadBytes, remainingScanBytes)
             unreadBytes -= bytesToRead
+            remainingScanBytes -= bytesToRead
 
             do {
                 try handle.seek(toOffset: unreadBytes)
@@ -166,6 +205,63 @@ struct CodexUsageReader {
         }
 
         return nil
+    }
+}
+
+private struct CodexSessionFile: Equatable {
+    let url: URL
+    let modifiedAt: Date
+    let size: UInt64
+}
+
+private final class CodexSessionScanCache: @unchecked Sendable {
+    struct Value {
+        let limits: CodexRateLimits?
+    }
+
+    private struct Entry {
+        let files: [CodexSessionFile]
+        let byteLimit: UInt64
+        let fileLimit: Int
+        let limits: CodexRateLimits?
+    }
+
+    private let lock = NSLock()
+    private var entries: [String: Entry] = [:]
+
+    func value(
+        for sessionsPath: String,
+        files: [CodexSessionFile],
+        byteLimit: UInt64,
+        fileLimit: Int
+    ) -> Value? {
+        lock.lock()
+        defer { lock.unlock() }
+
+        guard let entry = entries[sessionsPath],
+              entry.files == files,
+              entry.byteLimit == byteLimit,
+              entry.fileLimit == fileLimit else {
+            return nil
+        }
+        return Value(limits: entry.limits)
+    }
+
+    func store(
+        _ limits: CodexRateLimits?,
+        for sessionsPath: String,
+        files: [CodexSessionFile],
+        byteLimit: UInt64,
+        fileLimit: Int
+    ) {
+        lock.lock()
+        entries[sessionsPath] = Entry(
+            files: files,
+            byteLimit: byteLimit,
+            fileLimit: fileLimit,
+            limits: limits
+        )
+        lock.unlock()
     }
 }
 

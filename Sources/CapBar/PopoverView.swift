@@ -228,7 +228,7 @@ struct PopoverView: View {
             HelpGuideRow(
                 systemName: "arrow.triangle.2.circlepath",
                 title: "Rotation and refresh",
-                detail: "Use Settings to rotate providers, change auto-refresh, and refresh immediately."
+                detail: "Auto-refresh updates local usage and the UI. API spend is cached for five minutes; manual refresh requests it immediately."
             )
         }
         .background(palette.panelBackground, in: RoundedRectangle(cornerRadius: 8))
@@ -552,7 +552,7 @@ private extension EnvironmentValues {
 }
 
 private enum AppMetadata {
-    private static let fallbackVersion = "0.3.0"
+    private static let fallbackVersion = "0.3.1"
 
     static var versionLine: String {
         "\(appName) \(version)"

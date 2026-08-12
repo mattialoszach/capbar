@@ -4,6 +4,7 @@ import Foundation
 
 struct ClaudeUsageReader {
     private static let authStatusCache = ClaudeAuthStatusCache()
+    private static let credentialsCache = ClaudeCredentialsCache()
     private let oauthUsageURL = URL(string: "https://api.anthropic.com/api/oauth/usage")!
     private let oauthBetaHeader = "oauth-2025-04-20"
     private let keychainServiceName = "Claude Code-credentials"
@@ -12,7 +13,7 @@ struct ClaudeUsageReader {
 
     func read(force: Bool = false) async -> ProviderSnapshot {
         let now = Date()
-        let credentials = readOAuthCredentials()
+        let credentials = Self.credentialsCache.value(now: now, force: force, loader: readOAuthCredentials)
         // Reading auth status starts the full Claude CLI. OAuth credentials already
         // contain everything needed for normal usage refreshes, so only pay that
         // startup cost when credentials are unavailable.
@@ -443,6 +444,32 @@ private final class ClaudeAuthStatusCache: @unchecked Sendable {
         status = loadedStatus
         checkedAt = now
         return loadedStatus
+    }
+}
+
+private final class ClaudeCredentialsCache: @unchecked Sendable {
+    private let lock = NSLock()
+    private var credentials: ClaudeOAuthCredentials?
+    private var checkedAt: Date?
+
+    func value(
+        now: Date,
+        force: Bool,
+        loader: () -> ClaudeOAuthCredentials?
+    ) -> ClaudeOAuthCredentials? {
+        lock.lock()
+        defer { lock.unlock() }
+
+        if force == false,
+           let checkedAt,
+           now.timeIntervalSince(checkedAt) < ClaudeUsageRetryPolicy.authStatusRefreshInterval {
+            return credentials
+        }
+
+        let loadedCredentials = loader()
+        credentials = loadedCredentials
+        checkedAt = now
+        return loadedCredentials
     }
 }
 
