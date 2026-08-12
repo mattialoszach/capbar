@@ -3,16 +3,22 @@ import CryptoKit
 import Foundation
 
 struct ClaudeUsageReader {
+    private static let authStatusCache = ClaudeAuthStatusCache()
     private let oauthUsageURL = URL(string: "https://api.anthropic.com/api/oauth/usage")!
     private let oauthBetaHeader = "oauth-2025-04-20"
     private let keychainServiceName = "Claude Code-credentials"
     private let cacheURL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
         .appendingPathComponent("CapBar/claude-usage.json")
 
-    func read() async -> ProviderSnapshot {
+    func read(force: Bool = false) async -> ProviderSnapshot {
         let now = Date()
-        let status = readAuthStatus()
         let credentials = readOAuthCredentials()
+        // Reading auth status starts the full Claude CLI. OAuth credentials already
+        // contain everything needed for normal usage refreshes, so only pay that
+        // startup cost when credentials are unavailable.
+        let status = credentials == nil
+            ? Self.authStatusCache.value(now: now, force: force, loader: readAuthStatus)
+            : nil
         let cachedState = readCacheState()
         let tokenFingerprint = credentials.map { fingerprint(for: $0.accessToken) }
         let tokenChanged = cachedState?.tokenFingerprint.map { $0 != tokenFingerprint } ?? false
@@ -374,6 +380,7 @@ struct ClaudeUsageReader {
 }
 
 struct ClaudeUsageRetryPolicy {
+    static let authStatusRefreshInterval: TimeInterval = 5 * 60
     static let minimumFetchInterval: TimeInterval = 5 * 60
     static let transientRetryInterval: TimeInterval = 5 * 60
     static let authenticationRetryInterval: TimeInterval = 60
@@ -411,6 +418,32 @@ private struct ClaudeAuthStatus: Decodable {
     let authMethod: String?
     let email: String?
     let subscriptionType: String?
+}
+
+private final class ClaudeAuthStatusCache: @unchecked Sendable {
+    private let lock = NSLock()
+    private var status: ClaudeAuthStatus?
+    private var checkedAt: Date?
+
+    func value(
+        now: Date,
+        force: Bool,
+        loader: () -> ClaudeAuthStatus?
+    ) -> ClaudeAuthStatus? {
+        lock.lock()
+        defer { lock.unlock() }
+
+        if force == false,
+           let checkedAt,
+           now.timeIntervalSince(checkedAt) < ClaudeUsageRetryPolicy.authStatusRefreshInterval {
+            return status
+        }
+
+        let loadedStatus = loader()
+        status = loadedStatus
+        checkedAt = now
+        return loadedStatus
+    }
 }
 
 private struct ClaudeOAuthCredentials {

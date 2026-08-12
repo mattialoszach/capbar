@@ -1,14 +1,25 @@
 import Foundation
 
 struct CodexUsageReader {
+    private let sessionsURL: URL
+    private let authURL: URL
+
+    init(
+        sessionsURL: URL = LocalPaths.codexSessions,
+        authURL: URL = LocalPaths.codexAuthFile
+    ) {
+        self.sessionsURL = sessionsURL
+        self.authURL = authURL
+    }
+
     func read() -> ProviderSnapshot {
         let account = ProviderAccount(
-            isLoggedIn: LocalPaths.codexAuthFile.fileExists,
+            isLoggedIn: authURL.fileExists,
             email: nil,
             detail: "CLI account"
         )
 
-        guard LocalPaths.codexSessions.fileExists else {
+        guard sessionsURL.fileExists else {
             return ProviderSnapshot(
                 provider: .codex,
                 account: account,
@@ -73,7 +84,7 @@ struct CodexUsageReader {
 
     private func latestRateLimits() -> CodexRateLimits? {
         guard let enumerator = FileManager.default.enumerator(
-            at: LocalPaths.codexSessions,
+            at: sessionsURL,
             includingPropertiesForKeys: [.contentModificationDateKey, .isRegularFileKey],
             options: [.skipsHiddenFiles]
         ) else {
@@ -82,31 +93,79 @@ struct CodexUsageReader {
 
         let decoder = JSONDecoder()
         var latest: (date: Date, limits: CodexRateLimits)?
+        var files: [(url: URL, modifiedAt: Date)] = []
 
         for case let file as URL in enumerator where file.pathExtension == "jsonl" {
-            let values = try? file.resourceValues(forKeys: [.isRegularFileKey])
-            guard values?.isRegularFile == true else { continue }
-            guard let handle = try? FileHandle(forReadingFrom: file) else { continue }
-            defer { try? handle.close() }
+            let values = try? file.resourceValues(forKeys: [.contentModificationDateKey, .isRegularFileKey])
+            guard values?.isRegularFile == true, let modifiedAt = values?.contentModificationDate else { continue }
+            files.append((file, modifiedAt))
+        }
 
-            let data = handle.readDataToEndOfFile()
-            guard let contents = String(data: data, encoding: .utf8) else { continue }
+        files.sort { lhs, rhs in
+            if lhs.modifiedAt == rhs.modifiedAt {
+                return lhs.url.path > rhs.url.path
+            }
+            return lhs.modifiedAt > rhs.modifiedAt
+        }
 
-            for line in contents.split(separator: "\n") {
-                guard let lineData = line.data(using: .utf8),
-                      let event = try? decoder.decode(CodexLimitEvent.self, from: lineData),
-                      let limits = event.payload?.rateLimits,
-                      let timestamp = DateParser.parse(event.timestamp) else {
-                    continue
-                }
+        for file in files {
+            // A file cannot contain an event written after its modification date.
+            // Once older files predate the best event, they cannot improve it.
+            if let latest, file.modifiedAt < latest.date {
+                break
+            }
 
-                if latest == nil || timestamp > latest!.date {
-                    latest = (timestamp, limits)
-                }
+            guard let candidate = latestRateLimits(in: file.url, decoder: decoder) else { continue }
+            if latest == nil || candidate.date > latest!.date {
+                latest = candidate
             }
         }
 
         return latest?.limits
+    }
+
+    private func latestRateLimits(
+        in file: URL,
+        decoder: JSONDecoder
+    ) -> (date: Date, limits: CodexRateLimits)? {
+        guard let handle = try? FileHandle(forReadingFrom: file) else { return nil }
+        defer { try? handle.close() }
+
+        guard let fileSize = try? handle.seekToEnd() else { return nil }
+        let chunkSize: UInt64 = 64 * 1024
+        var unreadBytes = fileSize
+        var trailingPartialLine = Data()
+
+        while unreadBytes > 0 {
+            let bytesToRead = min(chunkSize, unreadBytes)
+            unreadBytes -= bytesToRead
+
+            do {
+                try handle.seek(toOffset: unreadBytes)
+                guard var chunk = try handle.read(upToCount: Int(bytesToRead)) else { return nil }
+                chunk.append(trailingPartialLine)
+
+                let lines = chunk.split(separator: 0x0A, omittingEmptySubsequences: false)
+                let firstCompleteLine = unreadBytes == 0 ? 0 : 1
+                if firstCompleteLine < lines.count {
+                    for line in lines[firstCompleteLine...].reversed() where line.isEmpty == false {
+                        guard line.range(of: Data("\"rate_limits\"".utf8)) != nil,
+                              let event = try? decoder.decode(CodexLimitEvent.self, from: line),
+                              let limits = event.payload?.rateLimits,
+                              let timestamp = DateParser.parse(event.timestamp) else {
+                            continue
+                        }
+                        return (timestamp, limits)
+                    }
+                }
+
+                trailingPartialLine = unreadBytes == 0 ? Data() : Data(lines.first ?? Data.SubSequence())
+            } catch {
+                return nil
+            }
+        }
+
+        return nil
     }
 }
 

@@ -99,7 +99,7 @@ final class UsageStore: ObservableObject {
 
         let task = Task.detached(priority: .utility) { () -> ([ProviderSnapshot], [APIAccountSnapshot]) in
             let codex = CodexUsageReader().read()
-            let claude = await ClaudeUsageReader().read()
+            let claude = await ClaudeUsageReader().read(force: force)
             let codexAPI = await APIAccountReader(provider: .codex).read(force: force)
             let claudeAPI = await APIAccountReader(provider: .claude).read(force: force)
             return ([codex, claude], [codexAPI, claudeAPI])
@@ -223,11 +223,13 @@ final class UsageStore: ObservableObject {
             return
         }
 
-        timer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+        let refreshTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.refresh()
             }
         }
+        refreshTimer.tolerance = min(5, interval * 0.1)
+        timer = refreshTimer
     }
 
     private func persistSettings() {
