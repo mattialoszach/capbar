@@ -112,12 +112,12 @@ final class UsageStore: ObservableObject {
         pendingAPIKeyRemovalProviderIDs.removeAll()
 
         let task = Task.detached(priority: .utility) { () -> ([ProviderSnapshot], [APIAccountSnapshot]) in
-            let codex = CodexUsageReader().read()
+            async let codex = CodexLiveUsageReader.shared.read(force: force)
             async let claude = ClaudeUsageReader().read(force: force)
             async let codexAPI = APIAccountReader(provider: .codex).read(force: force)
             async let claudeAPI = APIAccountReader(provider: .claude).read(force: force)
-            let (claudeSnapshot, codexAPISnapshot, claudeAPISnapshot) = await (claude, codexAPI, claudeAPI)
-            return ([codex, claudeSnapshot], [codexAPISnapshot, claudeAPISnapshot])
+            let (codexSnapshot, claudeSnapshot, codexAPISnapshot, claudeAPISnapshot) = await (codex, claude, codexAPI, claudeAPI)
+            return ([codexSnapshot, claudeSnapshot], [codexAPISnapshot, claudeAPISnapshot])
         }
 
         Task { @MainActor [weak self] in
@@ -148,7 +148,7 @@ final class UsageStore: ObservableObject {
         guard APIKeyStore.setKey(key, for: provider) else {
             checkingAPIKeyProviderIDs.remove(provider.rawValue)
             pendingAPIKeyCheckProviderIDs.remove(provider.rawValue)
-            lastError = "Could not save the API key to the Keychain"
+            lastError = "Could not save the API key to local storage"
             return
         }
         refresh(force: true)
@@ -240,12 +240,13 @@ final class UsageStore: ObservableObject {
             return
         }
 
-        let refreshTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+        let refreshTimer = Timer(timeInterval: interval, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.refresh()
             }
         }
         refreshTimer.tolerance = min(5, interval * 0.1)
+        RunLoop.main.add(refreshTimer, forMode: .common)
         timer = refreshTimer
     }
 

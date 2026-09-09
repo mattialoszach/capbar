@@ -51,27 +51,41 @@ struct CodexUsageReader {
             )
         }
 
-        return ProviderSnapshot(
+        return Self.snapshot(
+            limits: rateLimits,
+            account: account,
+            sourceDescription: "Local Codex session limits",
+            refreshedAt: Date()
+        )
+    }
+
+    static func snapshot(
+        limits: CodexRateLimits,
+        account: ProviderAccount,
+        sourceDescription: String,
+        refreshedAt: Date
+    ) -> ProviderSnapshot {
+        ProviderSnapshot(
             provider: .codex,
             account: account,
             current: metric(
                 title: "Current session",
                 fallbackDetail: "5 hour usage limit",
-                limit: rateLimits.primary,
+                limit: limits.primary,
                 resetStyle: .relative
             ),
             weekly: metric(
                 title: "Weekly limit",
                 fallbackDetail: "All models",
-                limit: rateLimits.secondary,
+                limit: limits.secondary,
                 resetStyle: .calendar
             ),
-            sourceDescription: rateLimits.planType.map { "\($0.capitalized) plan" } ?? "Codex limits",
-            refreshedAt: Date()
+            sourceDescription: limits.planType.map { "\($0.capitalized) plan · \(sourceDescription)" } ?? sourceDescription,
+            refreshedAt: refreshedAt
         )
     }
 
-    private func metric(title: String, fallbackDetail: String, limit: CodexRateLimitWindow?, resetStyle: ResetStyle) -> LimitMetric? {
+    private static func metric(title: String, fallbackDetail: String, limit: CodexRateLimitWindow?, resetStyle: ResetStyle) -> LimitMetric? {
         guard let limit else { return nil }
         let resetDate = limit.resetsAt.map { Date(timeIntervalSince1970: TimeInterval($0)) }
         if let resetDate, resetDate <= Date() {
@@ -191,6 +205,8 @@ struct CodexUsageReader {
                         guard line.range(of: Data("\"rate_limits\"".utf8)) != nil,
                               let event = try? decoder.decode(CodexLimitEvent.self, from: line),
                               let limits = event.payload?.rateLimits,
+                              limits.isCodexBucket,
+                              limits.primary != nil || limits.secondary != nil,
                               let timestamp = DateParser.parse(event.timestamp) else {
                             continue
                         }
@@ -278,27 +294,56 @@ private struct CodexLimitEvent: Decodable {
     }
 }
 
-private struct CodexRateLimits: Decodable {
+struct CodexRateLimits: Decodable, Sendable {
     let primary: CodexRateLimitWindow?
     let secondary: CodexRateLimitWindow?
     let planType: String?
+    let limitId: String?
+
+    var isCodexBucket: Bool { limitId == nil || limitId == "codex" }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        primary = try container.decodeIfPresent(CodexRateLimitWindow.self, forKey: .primary)
+        secondary = try container.decodeIfPresent(CodexRateLimitWindow.self, forKey: .secondary)
+        planType = try container.decodeIfPresent(String.self, forKey: .planType)
+            ?? container.decodeIfPresent(String.self, forKey: .planTypeCamel)
+        limitId = try container.decodeIfPresent(String.self, forKey: .limitId)
+            ?? container.decodeIfPresent(String.self, forKey: .limitIdCamel)
+    }
 
     enum CodingKeys: String, CodingKey {
         case primary
         case secondary
         case planType = "plan_type"
+        case planTypeCamel = "planType"
+        case limitId = "limit_id"
+        case limitIdCamel = "limitId"
     }
 }
 
-private struct CodexRateLimitWindow: Decodable {
+struct CodexRateLimitWindow: Decodable, Sendable {
     let usedPercent: Double?
     let windowMinutes: Int?
     let resetsAt: Int?
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        usedPercent = try container.decodeIfPresent(Double.self, forKey: .usedPercent)
+            ?? container.decodeIfPresent(Double.self, forKey: .usedPercentCamel)
+        windowMinutes = try container.decodeIfPresent(Int.self, forKey: .windowMinutes)
+            ?? container.decodeIfPresent(Int.self, forKey: .windowDurationMins)
+        resetsAt = try container.decodeIfPresent(Int.self, forKey: .resetsAt)
+            ?? container.decodeIfPresent(Int.self, forKey: .resetsAtCamel)
+    }
 
     enum CodingKeys: String, CodingKey {
         case usedPercent = "used_percent"
         case windowMinutes = "window_minutes"
         case resetsAt = "resets_at"
+        case usedPercentCamel = "usedPercent"
+        case windowDurationMins
+        case resetsAtCamel = "resetsAt"
     }
 }
 

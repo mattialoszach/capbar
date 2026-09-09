@@ -21,8 +21,9 @@ struct APIAccountReader {
         }
 
         let keyFingerprint = fingerprint(for: apiKey)
-        let keyChanged = readCacheState().map { $0.keyFingerprint != keyFingerprint } ?? false
-        let cached = keyChanged ? nil : readCacheState()
+        let storedState = readCacheState()
+        let keyChanged = storedState.map { $0.keyFingerprint != keyFingerprint } ?? false
+        let cached = keyChanged ? nil : storedState
         let canFetch = force || keyChanged || (cached?.nextFetchAt.map { $0 <= now } ?? true)
 
         if canFetch == false, let cached {
@@ -291,17 +292,19 @@ struct APIAccountReader {
         components?.queryItems = [
             URLQueryItem(name: "starting_at", value: ISO8601DateFormatter().string(from: dayStart)),
             URLQueryItem(name: "ending_at", value: ISO8601DateFormatter().string(from: now)),
-            URLQueryItem(name: "bucket_width", value: "1m"),
-            URLQueryItem(name: "limit", value: "1440"),
+            URLQueryItem(name: "bucket_width", value: "1d"),
+            URLQueryItem(name: "limit", value: "1"),
             URLQueryItem(name: "group_by[]", value: "model"),
             URLQueryItem(name: "group_by[]", value: "service_tier"),
-            URLQueryItem(name: "group_by[]", value: "inference_geo")
+            URLQueryItem(name: "group_by[]", value: "inference_geo"),
+            URLQueryItem(name: "group_by[]", value: "speed")
         ]
         guard let url = components?.url else { return nil }
 
         var request = URLRequest(url: url, timeoutInterval: 10)
         request.setValue(apiKey, forHTTPHeaderField: "x-api-key")
         request.setValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+        request.setValue("fast-mode-2026-02-01", forHTTPHeaderField: "anthropic-beta")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
         guard let (data, response) = try? await URLSession.shared.data(for: request),
@@ -491,7 +494,8 @@ enum APISpendParser {
     }
 
     static func anthropicUsageEstimate(from data: Data, now: Date) -> Double? {
-        guard let report = try? JSONDecoder().decode(AnthropicUsageReport.self, from: data) else { return nil }
+        guard let report = try? JSONDecoder().decode(AnthropicUsageReport.self, from: data),
+              report.hasMore != true else { return nil }
 
         var total = 0.0
         for bucket in report.data {
@@ -502,7 +506,7 @@ enum APISpendParser {
             }
 
             for result in bucket.results {
-                guard let cost = anthropicUsageCost(for: result, now: now) else {
+                guard let cost = anthropicUsageCost(for: result) else {
                     return nil
                 }
                 total += cost
@@ -573,7 +577,7 @@ enum APISpendParser {
         )
     }
 
-    private static func anthropicUsageCost(for result: AnthropicUsageReport.Result, now: Date) -> Double? {
+    private static func anthropicUsageCost(for result: AnthropicUsageReport.Result) -> Double? {
         let uncachedInput = result.uncachedInputTokens ?? 0
         let cacheCreation5m = result.cacheCreation?.ephemeral5mInputTokens ?? result.cacheCreationInputTokens ?? 0
         let cacheCreation1h = result.cacheCreation?.ephemeral1hInputTokens ?? 0
@@ -586,70 +590,92 @@ enum APISpendParser {
             return webSearchCost
         }
         guard let model = result.model,
-              let pricing = anthropicModelPricing(for: model, now: now) else {
+              let pricing = anthropicModelPricing(for: model) else {
             return nil
         }
 
-        let serviceTierMultiplier = result.serviceTier == "batch" ? 0.5 : 1.0
+        let serviceTierMultiplier: Double
+        switch result.serviceTier {
+        case nil, "standard": serviceTierMultiplier = 1
+        case "batch": serviceTierMultiplier = 0.5
+        default: return nil // Negotiated/flex tiers cannot be inferred from list prices.
+        }
+        let speedMultiplier: Double
+        switch result.speed {
+        case nil, "standard": speedMultiplier = 1
+        case "fast":
+            guard let multiplier = pricing.fastMultiplier else { return nil }
+            speedMultiplier = multiplier
+        default: return nil
+        }
         let inferenceGeoMultiplier = result.inferenceGeo == "us" ? 1.1 : 1.0
         let tokenCost = (
             uncachedInput * pricing.inputPerMillion +
             cacheCreation5m * pricing.inputPerMillion * 1.25 +
             cacheCreation1h * pricing.inputPerMillion * 2.0 +
-            cacheRead * pricing.inputPerMillion * 0.1 +
+            cacheRead * pricing.inputPerMillion * pricing.cacheReadMultiplier +
             output * pricing.outputPerMillion
         ) / 1_000_000
 
-        return tokenCost * serviceTierMultiplier * inferenceGeoMultiplier + webSearchCost
+        return tokenCost * serviceTierMultiplier * inferenceGeoMultiplier * speedMultiplier + webSearchCost
     }
 
-    private static func anthropicModelPricing(for model: String, now: Date) -> AnthropicModelPricing? {
-        let normalized = model.lowercased()
+    private static func anthropicModelPricing(for model: String) -> AnthropicModelPricing? {
+        let normalized = model.lowercased().replacingOccurrences(of: ".", with: "-")
+        func matches(_ names: [String]) -> Bool {
+            names.contains { name in
+                let prefix = "claude-\(name)"
+                if normalized == prefix || normalized == "\(prefix)-latest" { return true }
+                guard normalized.hasPrefix("\(prefix)-") else { return false }
+                let suffix = normalized.dropFirst(prefix.count + 1)
+                return suffix.count == 8 && suffix.allSatisfy(\.isNumber)
+            }
+        }
 
-        if normalized.contains("fable") || normalized.contains("mythos") {
+        // Verified against Anthropic's pricing table on 2026-09-09. Unknown
+        // versions deliberately leave the estimate unavailable until verified.
+        if matches(["fable-5-1", "mythos-5-1"]) {
+            return AnthropicModelPricing(inputPerMillion: 10, outputPerMillion: 50, cacheReadMultiplier: 0.025)
+        }
+        if matches(["fable-5", "mythos-5"]) {
             return AnthropicModelPricing(inputPerMillion: 10, outputPerMillion: 50)
         }
-
-        if normalized.contains("opus") {
-            if normalized.contains("4-5") ||
-                normalized.contains("4-6") ||
-                normalized.contains("4-7") ||
-                normalized.contains("4-8") {
-                return AnthropicModelPricing(inputPerMillion: 5, outputPerMillion: 25)
-            }
+        if matches(["opus-5", "opus-4-8"]) {
+            return AnthropicModelPricing(inputPerMillion: 5, outputPerMillion: 25, fastMultiplier: 2)
+        }
+        if matches(["opus-4-6"]) {
+            return AnthropicModelPricing(inputPerMillion: 5, outputPerMillion: 25, fastMultiplier: 1)
+        }
+        if matches(["opus-4-7", "opus-4-5"]) {
+            return AnthropicModelPricing(inputPerMillion: 5, outputPerMillion: 25)
+        }
+        if matches(["opus-4-1", "opus-4-0", "opus-4", "4-opus", "3-opus"]) {
             return AnthropicModelPricing(inputPerMillion: 15, outputPerMillion: 75)
         }
-
-        if normalized.contains("sonnet") {
-            if normalized.contains("sonnet-5") || normalized.contains("5-sonnet") {
-                return now < sonnet5PromotionalPricingEnd
-                    ? AnthropicModelPricing(inputPerMillion: 2, outputPerMillion: 10)
-                    : AnthropicModelPricing(inputPerMillion: 3, outputPerMillion: 15)
-            }
+        if matches(["sonnet-5", "5-sonnet"]) {
+            return AnthropicModelPricing(inputPerMillion: 2, outputPerMillion: 10)
+        }
+        if matches(["sonnet-4-6", "sonnet-4-5", "sonnet-4-0", "sonnet-4", "4-sonnet", "3-7-sonnet", "3-5-sonnet", "3-sonnet"]) {
             return AnthropicModelPricing(inputPerMillion: 3, outputPerMillion: 15)
         }
-
-        if normalized.contains("haiku") {
-            if normalized.contains("4-5") {
-                return AnthropicModelPricing(inputPerMillion: 1, outputPerMillion: 5)
-            }
-            if normalized.contains("3-5") {
-                return AnthropicModelPricing(inputPerMillion: 0.8, outputPerMillion: 4)
-            }
+        if matches(["haiku-4-5"]) {
+            return AnthropicModelPricing(inputPerMillion: 1, outputPerMillion: 5)
+        }
+        if matches(["3-5-haiku"]) {
+            return AnthropicModelPricing(inputPerMillion: 0.8, outputPerMillion: 4)
+        }
+        if matches(["3-haiku"]) {
             return AnthropicModelPricing(inputPerMillion: 0.25, outputPerMillion: 1.25)
         }
-
         return nil
-    }
-
-    private static var sonnet5PromotionalPricingEnd: Date {
-        DateParser.parse("2026-09-01T00:00:00Z") ?? .distantPast
     }
 }
 
 private struct AnthropicModelPricing {
     let inputPerMillion: Double
     let outputPerMillion: Double
+    var cacheReadMultiplier: Double = 0.1
+    var fastMultiplier: Double? = nil
 }
 
 private enum APISpendFetchResult {
@@ -734,6 +760,12 @@ private struct AnthropicCostReport: Decodable {
 
 private struct AnthropicUsageReport: Decodable {
     let data: [Bucket]
+    let hasMore: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case data
+        case hasMore = "has_more"
+    }
 
     struct Bucket: Decodable {
         let startingAt: String?
@@ -757,6 +789,7 @@ private struct AnthropicUsageReport: Decodable {
         let model: String?
         let serviceTier: String?
         let inferenceGeo: String?
+        let speed: String?
 
         enum CodingKeys: String, CodingKey {
             case uncachedInputTokens = "uncached_input_tokens"
@@ -768,6 +801,7 @@ private struct AnthropicUsageReport: Decodable {
             case model
             case serviceTier = "service_tier"
             case inferenceGeo = "inference_geo"
+            case speed
         }
     }
 

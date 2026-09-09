@@ -121,7 +121,7 @@ final class APIAccountTests: XCTestCase {
         XCTAssertEqual(estimate, 9.9, accuracy: 0.0001)
     }
 
-    func testAnthropicUsageEstimateHandlesSonnet5PromotionalPricingCutover() throws {
+    func testAnthropicUsageEstimateKeepsSonnet5PriceAfterSeptember() throws {
         let json = Data(
             """
             {
@@ -151,7 +151,7 @@ final class APIAccountTests: XCTestCase {
         )
         XCTAssertEqual(
             try XCTUnwrap(APISpendParser.anthropicUsageEstimate(from: json, now: afterCutover)),
-            18,
+            12,
             accuracy: 0.0001
         )
     }
@@ -178,6 +178,52 @@ final class APIAccountTests: XCTestCase {
         let now = try XCTUnwrap(DateParser.parse("2026-07-06T12:00:00Z"))
 
         XCTAssertNil(APISpendParser.anthropicUsageEstimate(from: json, now: now))
+    }
+
+    func testCurrentAnthropicModelAndCachePrices() throws {
+        // One million input, output, and cache-read tokens in each fixture.
+        let cases: [(String, Double)] = [
+            ("claude-opus-5", 30.5),
+            ("claude-opus-5-20260801", 30.5),
+            ("claude-opus-4-8", 30.5),
+            ("claude-opus-4-1", 91.5),
+            ("claude-fable-5-1", 60.25),
+            ("claude-mythos-5-1", 60.25),
+            ("claude-fable-5", 61),
+            ("claude-sonnet-5", 12.2),
+            ("claude-haiku-4-5-20251001", 6.1),
+            ("claude-3-5-haiku-20241022", 4.88)
+        ]
+        for (model, expected) in cases {
+            let json = Data("""
+            {"data":[{"results":[{"model":"\(model)","uncached_input_tokens":1000000,
+            "output_tokens":1000000,"cache_read_input_tokens":1000000}]}]}
+            """.utf8)
+            XCTAssertEqual(try XCTUnwrap(APISpendParser.anthropicUsageEstimate(from: json, now: Date())), expected, accuracy: 0.0001, model)
+        }
+    }
+
+    func testUnknownVersionsAndPartialUsageReportsDoNotProduceMisleadingEstimates() {
+        for model in ["claude-opus-6", "claude-sonnet-5-1", "claude-haiku-5", "claude-fable-6"] {
+            let json = Data("""
+            {"data":[{"results":[{"model":"\(model)","uncached_input_tokens":1000000}]}]}
+            """.utf8)
+            XCTAssertNil(APISpendParser.anthropicUsageEstimate(from: json, now: Date()), model)
+        }
+        let partial = Data(#"{"data":[],"has_more":true,"next_page":"remaining"}"#.utf8)
+        XCTAssertNil(APISpendParser.anthropicUsageEstimate(from: partial, now: Date()))
+    }
+
+    func testFastModeAndUnknownServiceTiers() throws {
+        let fast = Data("""
+        {"data":[{"results":[{"model":"claude-opus-5","uncached_input_tokens":1000000,
+        "output_tokens":1000000,"cache_read_input_tokens":1000000,"speed":"fast","inference_geo":"us"}]}]}
+        """.utf8)
+        XCTAssertEqual(try XCTUnwrap(APISpendParser.anthropicUsageEstimate(from: fast, now: Date())), 67.1, accuracy: 0.0001)
+        let negotiated = Data("""
+        {"data":[{"results":[{"model":"claude-opus-5","uncached_input_tokens":1000000,"service_tier":"priority"}]}]}
+        """.utf8)
+        XCTAssertNil(APISpendParser.anthropicUsageEstimate(from: negotiated, now: Date()))
     }
 
     func testOpenAICostPageSumsDollarsAndDetectsToday() throws {

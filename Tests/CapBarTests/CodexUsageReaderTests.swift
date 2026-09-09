@@ -117,6 +117,32 @@ final class CodexUsageReaderTests: XCTestCase {
         XCTAssertNil(snapshot.current?.usedPercent)
     }
 
+    func testSkipsNewerOtherBucketsAndEmptyRateLimitEvents() throws {
+        let fixture = try makeFixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        let events = [
+            rateLimitEvent(timestamp: "2026-09-09T09:00:00Z", usedPercent: 23),
+            #"{"timestamp":"2026-09-09T09:01:00Z","payload":{"rate_limits":{"limit_id":"codex_other","primary":{"used_percent":99}}}}"#,
+            #"{"timestamp":"2026-09-09T09:02:00Z","payload":{"rate_limits":{"primary":null,"secondary":null}}}"#
+        ]
+        try Data(events.joined(separator: "\n").utf8).write(to: fixture.sessions.appendingPathComponent("session.jsonl"))
+        let snapshot = CodexUsageReader(sessionsURL: fixture.sessions, authURL: fixture.auth).read()
+        XCTAssertEqual(snapshot.current?.usedPercent, 23)
+    }
+
+    func testConfiguredProviderDirectories() {
+        for (variable, defaultName) in [("CODEX_HOME", ".codex"), ("CLAUDE_CONFIG_DIR", ".claude")] {
+            XCTAssertEqual(
+                LocalPaths.configurationDirectory(variable: variable, defaultName: defaultName, environment: [variable: "/tmp/capbar-custom"]),
+                URL(fileURLWithPath: "/tmp/capbar-custom", isDirectory: true)
+            )
+            XCTAssertEqual(
+                LocalPaths.configurationDirectory(variable: variable, defaultName: defaultName, environment: [variable: " "]),
+                LocalPaths.homeDirectory.appendingPathComponent(defaultName)
+            )
+        }
+    }
+
     private func makeFixture() throws -> (root: URL, sessions: URL, auth: URL) {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("CapBarCodexUsageReaderTests-\(UUID().uuidString)")

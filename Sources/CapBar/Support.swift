@@ -6,23 +6,42 @@ enum LocalPaths {
     }
 
     static var codexSessions: URL {
-        homeDirectory.appendingPathComponent(".codex/sessions")
+        codexHome.appendingPathComponent("sessions")
+    }
+
+    static var codexHome: URL {
+        configurationDirectory(variable: "CODEX_HOME", defaultName: ".codex")
+    }
+
+    static var claudeHome: URL {
+        configurationDirectory(variable: "CLAUDE_CONFIG_DIR", defaultName: ".claude")
+    }
+
+    static func configurationDirectory(
+        variable: String,
+        defaultName: String,
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> URL {
+        guard let path = environment[variable], !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return homeDirectory.appendingPathComponent(defaultName)
+        }
+        return URL(fileURLWithPath: (path as NSString).expandingTildeInPath, isDirectory: true)
     }
 
     static var codexStateDatabase: URL {
-        homeDirectory.appendingPathComponent(".codex/state_5.sqlite")
+        codexHome.appendingPathComponent("state_5.sqlite")
     }
 
     static var claudeProjects: URL {
-        homeDirectory.appendingPathComponent(".claude/projects")
+        claudeHome.appendingPathComponent("projects")
     }
 
     static var claudeCredentialsFile: URL {
-        homeDirectory.appendingPathComponent(".claude/.credentials.json")
+        claudeHome.appendingPathComponent(".credentials.json")
     }
 
     static var codexAuthFile: URL {
-        homeDirectory.appendingPathComponent(".codex/auth.json")
+        codexHome.appendingPathComponent("auth.json")
     }
 }
 

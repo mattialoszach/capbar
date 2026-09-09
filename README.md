@@ -12,7 +12,7 @@ CapBar is a compact macOS menu bar app for tracking AI coding-agent usage limits
 
 It currently supports Codex and Claude Code. The menu bar item shows the selected provider's current-session and weekly remaining usage, and the popover gives a fuller view with account status, reset times, manual refresh, login actions, provider switching, and lightweight settings.
 
-CapBar is intentionally small: it does not proxy requests, store usage history, or send telemetry. It reads the same local provider state that the CLIs already write on your Mac.
+CapBar is intentionally small: it does not proxy requests, store usage history, or send telemetry. It uses your existing local CLI sign-ins to check provider usage, with local Codex session files as a fallback.
 
 <p align="center">
   <img src="docs/images/demo-2.webp" width="600" alt="CapBar provider popover view">
@@ -159,7 +159,7 @@ swift run CapBar
 - Optional low-usage warning colors for remaining limits.
 - Optional API console spend tracking per provider (see below).
 - Remembers the selected provider, per-provider menu bar data mode, rotation interval, refresh interval, and low-usage color preference in `UserDefaults`.
-- Local-only credential and session reading.
+- Uses existing local CLI credentials for subscription usage checks.
 
 ## API Console Spend (Optional)
 
@@ -171,6 +171,8 @@ In the popover, the `Anthropic API` / `OpenAI API` panel accepts an API key and 
 - **OpenAI**: Admin keys (`sk-admin-...`) use the documented `GET https://api.openai.com/v1/organization/costs` endpoint for month-to-date and today's spend. For non-admin keys, CapBar can still try the undocumented legacy `GET https://api.openai.com/v1/dashboard/billing/credit_grants` and `GET https://api.openai.com/v1/dashboard/billing/subscription` endpoints. Automatic legacy probes stop after two failures; replacing the key or refreshing manually retries them.
 
 Anthropic does not expose the remaining credit balance through any API, so for Anthropic CapBar shows spend rather than balance.
+
+Anthropic's current-day estimate uses one daily usage bucket, grouped by model, service tier, geography, and speed. Prices were checked against the [official pricing table](https://platform.claude.com/docs/en/about-claude/pricing) on September 9, 2026: Sonnet 5 remains $2/$10 per million input/output tokens, Opus 5 uses $5/$25, and Fable/Mythos 5.1 cache reads use the reduced rate. Fast mode on Opus 5/4.8 is included. Unknown model versions, unsupported pricing tiers, or incomplete reports leave the estimate unavailable until official cost data arrives.
 
 ### Monthly Limit Bar
 
@@ -187,29 +189,33 @@ Keys are stored locally in `~/Library/Application Support/CapBar/api-keys.json` 
 
 ### Codex
 
-CapBar reads Codex usage from local Codex session files:
+CapBar first queries the [documented Codex app-server account API](https://learn.chatgpt.com/docs/app-server) through the installed `codex` executable. It calls `account/read` and `account/rateLimits/read` without starting a conversation or model turn. Codex handles its own authentication, including file and Keychain storage. API-key accounts are identified explicitly; subscription limits require a ChatGPT login.
+
+Live queries are cached in memory for five minutes. Manual refresh bypasses this cache. The CLI exchange has a ten-second timeout and runs off the UI thread alongside the other provider checks.
+
+If the CLI or account query is unavailable, CapBar falls back to local Codex session files:
 
 ```text
 ~/.codex/sessions/**/*.jsonl
 ```
 
-It looks for the latest `rate_limits` metadata event and maps:
+It selects the `codex` quota bucket (or the legacy unnamed bucket) and maps:
 
 - `primary` to `Current session`
 - `secondary` to `Weekly limit`
 - `plan_type` to the source line, such as `Plus plan`
 
-Codex login state is detected from:
+The fallback uses this file for login detection:
 
 ```text
 ~/.codex/auth.json
 ```
 
-If a stored Codex reset time has already passed and Codex has not written a newer event yet, CapBar treats that window as reset locally instead of showing stale usage.
+`CODEX_HOME` is respected when set in CapBar's environment; otherwise these paths default to `~/.codex`. Other metered buckets and empty session metadata cannot overwrite the main usage bars. If a stored reset time has passed, CapBar treats that window as reset locally until a new sample arrives. A successful live account check reporting no login or an API-key login takes precedence over old session files.
 
 ### Claude Code
 
-CapBar gets Claude Code account identity from:
+CapBar normally gets Claude Code plan details from its OAuth credentials. If credentials are unavailable, it checks account status with:
 
 ```sh
 claude auth status --json
@@ -228,19 +234,21 @@ It checks these local credential sources in order:
 macOS Keychain item: Claude Code-credentials
 ```
 
+CapBar respects `CLAUDE_CONFIG_DIR` for credential files and Claude Code's corresponding Keychain namespace, including `CLAUDE_SECURESTORAGE_CONFIG_DIR` overrides. These environment variables must be available to the CapBar process. An expired credential file does not prevent checking the Keychain for a newer login.
+
 It maps:
 
 - `five_hour` to `Current session`
 - `seven_day` to `Weekly limit`
 - `extra_usage` is decoded for future use but is not displayed yet
 
-CapBar calls the OAuth usage endpoint at most once every five minutes. It caches the latest successful response locally for up to 24 hours and uses exponential backoff when Anthropic returns HTTP `429`, so a temporary throttle does not replace valid values with `Unavailable`. The cache is stored at:
+CapBar calls the OAuth usage endpoint on the selected auto-refresh cadence, down to once every 30 seconds. Manual refresh bypasses the normal successful-response cooldown. It caches the latest successful response locally for up to 24 hours and uses exponential backoff when Anthropic returns HTTP `429`, so a temporary throttle does not replace valid values with `Unavailable`. The cache is stored at:
 
 ```text
 ~/Library/Caches/CapBar/claude-usage.json
 ```
 
-The cache contains usage values, reset timestamps, and a one-way token fingerprint. It does not contain the OAuth token. Claude usage remains best-effort because Anthropic's OAuth usage endpoint and Claude Code credential locations are not public stable contracts.
+The cache contains usage values, reset timestamps, and a one-way token fingerprint. It does not contain the OAuth token. Changing credentials or logging out discards the previous token's usage and retry state. Manual refresh rechecks credentials and usage while still respecting active rate-limit backoff. Both seconds and HTTP dates in `Retry-After` are honored. Claude usage remains best-effort because Anthropic's OAuth usage endpoint and Claude Code credential locations are not public stable contracts.
 
 ## Release Packaging
 
@@ -357,7 +365,7 @@ Available rotation intervals:
 
 CapBar refreshes automatically based on the selected interval. The default is `1 min`.
 
-This interval controls local subscription checks and UI updates. API spend has a separate five-minute network cache, so choosing `30 sec` does not poll billing APIs every 30 seconds. The manual refresh button bypasses the API-spend cache and requests fresh data immediately.
+This interval controls subscription checks and UI updates. Claude usage follows the selected interval down to `30 sec`; live Codex queries and API spend retain separate five-minute caches. Manual refresh bypasses successful-response caches, while Claude rate-limit backoff still applies.
 
 Available intervals:
 
@@ -388,11 +396,11 @@ Low-usage colors can be toggled from settings. When enabled, remaining usage cha
 CapBar is local-first:
 
 - It does not send telemetry.
-- It does not store tokens.
+- It does not persist subscription OAuth tokens; optional API keys are stored in the local file described above.
 - It does not log full tokens.
 - It reads provider credentials only when needed.
-- Claude OAuth tokens are kept in memory only long enough to call the usage endpoint.
-- Codex usage is read from local session files.
+- Claude OAuth credentials are cached briefly in memory to reduce Keychain access.
+- Codex account queries run through the local CLI; session files provide a fallback.
 
 Claude credential reads may access:
 
@@ -413,7 +421,7 @@ Codex reads may access:
 - CapBar is not affiliated with OpenAI or Anthropic.
 - Claude usage support depends on an undocumented/best-effort OAuth usage endpoint.
 - Claude may temporarily return overload or rate-limit errors. CapBar keeps the latest successful values while backing off, provided that cache is no more than 24 hours old.
-- Codex usage depends on the latest local `rate_limits` event written by Codex.
+- Codex live usage requires an installed CLI with the account app-server API. The local fallback depends on the latest `rate_limits` event written by Codex and may be stale.
 - CapBar currently displays two windows per provider: current session and weekly.
 - Settings currently cover provider rotation, auto-refresh, and low-usage colors.
 - No usage history, charts, or notifications are implemented yet.
@@ -444,7 +452,7 @@ In Finder, replace the existing `CapBar.app` in `Applications` with the newly bu
 
 ### Codex shows no usage
 
-Check that Codex has local session files:
+Check that Codex is installed and signed in with ChatGPT, then use CapBar's manual refresh. An API-key login does not expose subscription limits. For the local fallback, check for session files:
 
 ```sh
 ls ~/.codex/sessions
@@ -479,7 +487,18 @@ If Claude's OAuth usage endpoint is temporarily overloaded or throttled, wait an
 
 ### The refresh button spins briefly but values do not change
 
-The refresh button only re-reads provider state. If the provider has not written new local Codex metadata, or Anthropic returns an unavailable Claude usage response, values may remain unchanged.
+Values may remain unchanged if usage has not changed, Codex is using the local fallback, or Claude's usage cooldown/backoff is still active.
+
+## Compatibility Checks
+
+Run the offline regression suite with `swift test`. It covers the Codex account protocol, multiple quota buckets, timeouts, Claude cache isolation, and pricing calculations. Optional integration checks use your installed CLI sign-ins and print no credentials:
+
+```sh
+CAPBAR_TEST_LIVE_CODEX=1 swift test --filter CodexLiveUsageReaderTests.testInstalledCodexSmokeTestWhenEnabled
+CAPBAR_TEST_LIVE_CLAUDE=1 swift test --filter ClaudeUsageReaderTests.testInstalledClaudeSmokeTestWhenEnabled
+```
+
+The Claude integration check uses the normal usage cache and requires an available subscription usage response. Default tests use fixtures and do not contact provider APIs.
 
 ## Project Structure
 
@@ -491,6 +510,7 @@ Sources/CapBar/
   StatusBarLabel.swift         Compact menu bar label
   Models.swift                 Provider and usage models
   UsageStore.swift             Shared settings, refresh state, and auto-refresh timer
+  CodexLiveUsageReader.swift   Cached Codex account API and bounded CLI transport
   CodexUsageReader.swift       Codex local session reader
   ClaudeUsageReader.swift      Claude CLI/OAuth reader
   ProviderLoginRunner.swift    Terminal login launcher

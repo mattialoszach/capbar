@@ -7,30 +7,71 @@ struct ClaudeUsageReader {
     private static let credentialsCache = ClaudeCredentialsCache()
     private let oauthUsageURL = URL(string: "https://api.anthropic.com/api/oauth/usage")!
     private let oauthBetaHeader = "oauth-2025-04-20"
-    private let keychainServiceName = "Claude Code-credentials"
-    private let cacheURL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
-        .appendingPathComponent("CapBar/claude-usage.json")
+    static func keychainServiceName(environment: [String: String] = ProcessInfo.processInfo.environment) -> String {
+        let base = "Claude Code-credentials"
+        // Claude Code namespaces secure storage when a configuration directory
+        // is set. The explicit secure-storage override can opt back into the
+        // default Keychain by being present but empty.
+        let path = environment["CLAUDE_SECURESTORAGE_CONFIG_DIR"] ?? environment["CLAUDE_CONFIG_DIR"]
+        guard let path, !path.isEmpty else { return base }
+        let digest = SHA256.hash(data: Data(path.precomposedStringWithCanonicalMapping.utf8))
+            .map { String(format: "%02x", $0) }.joined()
+        return "\(base)-\(digest.prefix(8))"
+    }
+    private let cacheURL: URL
+    private let credentialsLoader: (@Sendable () -> ClaudeOAuthCredentials?)?
+    private let usageLoader: (@Sendable (ClaudeOAuthCredentials) async -> ClaudeUsageFetchResult)?
+
+    init(
+        cacheURL: URL = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("CapBar/claude-usage.json"),
+        credentialsLoader: (@Sendable () -> ClaudeOAuthCredentials?)? = nil,
+        usageLoader: (@Sendable (ClaudeOAuthCredentials) async -> ClaudeUsageFetchResult)? = nil
+    ) {
+        self.cacheURL = cacheURL
+        self.credentialsLoader = credentialsLoader
+        self.usageLoader = usageLoader
+    }
 
     func read(force: Bool = false) async -> ProviderSnapshot {
         let now = Date()
-        let credentials = Self.credentialsCache.value(now: now, force: force, loader: readOAuthCredentials)
+        let credentials: ClaudeOAuthCredentials?
+        if let credentialsLoader {
+            credentials = credentialsLoader()
+        } else {
+            credentials = Self.credentialsCache.value(now: now, force: force, loader: readOAuthCredentials)
+        }
         // Reading auth status starts the full Claude CLI. OAuth credentials already
         // contain everything needed for normal usage refreshes, so only pay that
         // startup cost when credentials are unavailable.
-        let status = credentials == nil
+        let status = credentials == nil && credentialsLoader == nil
             ? Self.authStatusCache.value(now: now, force: force, loader: readAuthStatus)
             : nil
-        let cachedState = readCacheState()
+        let storedState = readCacheState()
         let tokenFingerprint = credentials.map { fingerprint(for: $0.accessToken) }
-        let tokenChanged = cachedState?.tokenFingerprint.map { $0 != tokenFingerprint } ?? false
+        // Never reuse usage or retry deadlines from a different login, including
+        // legacy caches without an identity and logout (no current token).
+        let cachedState = tokenFingerprint != nil && storedState?.tokenFingerprint == tokenFingerprint
+            ? storedState : nil
+        if storedState != nil, cachedState == nil {
+            try? FileManager.default.removeItem(at: cacheURL)
+        }
         let credentialsExpired = credentials?.expiresAt.map { $0 <= now } ?? false
+        // Manual refresh may bypass a successful-response cooldown, but never
+        // an active rate-limit backoff. Automatic refresh follows the app timer
+        // down to its shortest supported interval (30 seconds).
+        let mayBypassCooldown = force && (cachedState?.rateLimitFailureCount ?? 0) == 0
         let canFetch = credentials != nil
-            && (tokenChanged || cachedState?.nextFetchAt.map { $0 <= now } ?? true)
+            && (mayBypassCooldown || cachedState?.nextFetchAt.map { $0 <= now } ?? true)
         let fetchResult: ClaudeUsageFetchResult
         if credentialsExpired {
             fetchResult = .unauthorized
-        } else if canFetch {
-            fetchResult = await readOAuthUsage(credentials: credentials)
+        } else if canFetch, let credentials {
+            if let usageLoader {
+                fetchResult = await usageLoader(credentials)
+            } else {
+                fetchResult = await readOAuthUsage(credentials: credentials)
+            }
         } else {
             fetchResult = .deferred
         }
@@ -53,7 +94,7 @@ struct ClaudeUsageReader {
             )
             return snapshot(usage: usage, account: account, sourceDescription: "Claude OAuth usage", refreshedAt: now)
         case let .rateLimited(retryAfter):
-            let failureCount = tokenChanged ? 1 : (cachedState?.rateLimitFailureCount ?? 0) + 1
+            let failureCount = (cachedState?.rateLimitFailureCount ?? 0) + 1
             let delay = ClaudeUsageRetryPolicy.rateLimitDelay(
                 failureCount: failureCount,
                 retryAfter: retryAfter
@@ -205,7 +246,8 @@ struct ClaudeUsageReader {
             guard let data = processOutput(
                 executablePath: executablePath,
                 arguments: arguments,
-                timeout: 5
+                timeout: 5,
+                acceptedExitCodes: [0, 1]
             ) else {
                 continue
             }
@@ -229,13 +271,15 @@ struct ClaudeUsageReader {
     }
 
     private func readOAuthCredentials() -> ClaudeOAuthCredentials? {
+        var expiredCredentials: ClaudeOAuthCredentials?
         for candidate in credentialFileCandidates {
             if let credentials = readCredentialsFile(at: candidate) {
-                return credentials
+                if credentials.expiresAt.map({ $0 <= Date() }) != true { return credentials }
+                expiredCredentials = credentials
             }
         }
 
-        return readKeychainCredentials()
+        return readKeychainCredentials() ?? expiredCredentials
     }
 
     private var credentialFileCandidates: [URL] {
@@ -252,7 +296,7 @@ struct ClaudeUsageReader {
     private func readKeychainCredentials() -> ClaudeOAuthCredentials? {
         guard let data = processOutput(
             executablePath: "/usr/bin/security",
-            arguments: ["find-generic-password", "-w", "-s", keychainServiceName],
+            arguments: ["find-generic-password", "-w", "-s", Self.keychainServiceName()],
             timeout: 5
         ) else {
             return nil
@@ -322,12 +366,7 @@ struct ClaudeUsageReader {
     }
 
     private func retryAfter(from response: HTTPURLResponse) -> TimeInterval? {
-        guard let value = response.value(forHTTPHeaderField: "Retry-After"),
-              let seconds = TimeInterval(value),
-              seconds > 0 else {
-            return nil
-        }
-        return seconds
+        ClaudeUsageRetryPolicy.retryAfter(response.value(forHTTPHeaderField: "Retry-After"), now: Date())
     }
 
     private func fingerprint(for accessToken: String) -> String {
@@ -346,14 +385,19 @@ struct ClaudeUsageReader {
         try? data.write(to: cacheURL, options: .atomic)
     }
 
-    private func processOutput(executablePath: String, arguments: [String], timeout: TimeInterval) -> Data? {
+    private func processOutput(
+        executablePath: String,
+        arguments: [String],
+        timeout: TimeInterval,
+        acceptedExitCodes: Set<Int32> = [0]
+    ) -> Data? {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executablePath)
         process.arguments = arguments
 
         let output = Pipe()
         process.standardOutput = output
-        process.standardError = Pipe()
+        process.standardError = FileHandle.nullDevice
 
         let semaphore = DispatchSemaphore(value: 0)
         process.terminationHandler = { _ in
@@ -375,14 +419,14 @@ struct ClaudeUsageReader {
             return nil
         }
 
-        guard process.terminationStatus == 0 else { return nil }
+        guard acceptedExitCodes.contains(process.terminationStatus) else { return nil }
         return output.fileHandleForReading.readDataToEndOfFile()
     }
 }
 
 struct ClaudeUsageRetryPolicy {
     static let authStatusRefreshInterval: TimeInterval = 5 * 60
-    static let minimumFetchInterval: TimeInterval = 5 * 60
+    static let minimumFetchInterval: TimeInterval = 30
     static let transientRetryInterval: TimeInterval = 5 * 60
     static let authenticationRetryInterval: TimeInterval = 60
     static let maximumCachedUsageAge: TimeInterval = 24 * 60 * 60
@@ -394,11 +438,22 @@ struct ClaudeUsageRetryPolicy {
     }
 
     static func canUseCache(fetchedAt: Date, now: Date) -> Bool {
-        now.timeIntervalSince(fetchedAt) <= maximumCachedUsageAge
+        (0...maximumCachedUsageAge).contains(now.timeIntervalSince(fetchedAt))
+    }
+
+    static func retryAfter(_ value: String?, now: Date) -> TimeInterval? {
+        guard let value else { return nil }
+        if let seconds = TimeInterval(value), seconds.isFinite, seconds > 0 { return seconds }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
+        guard let date = formatter.date(from: value), date > now else { return nil }
+        return date.timeIntervalSince(now)
     }
 }
 
-private enum ClaudeUsageFetchResult {
+enum ClaudeUsageFetchResult: Sendable {
     case success(ClaudeOAuthUsage)
     case rateLimited(retryAfter: TimeInterval?)
     case unauthorized
@@ -451,6 +506,7 @@ private final class ClaudeCredentialsCache: @unchecked Sendable {
     private let lock = NSLock()
     private var credentials: ClaudeOAuthCredentials?
     private var checkedAt: Date?
+    private var fileSignature: String?
 
     func value(
         now: Date,
@@ -460,20 +516,27 @@ private final class ClaudeCredentialsCache: @unchecked Sendable {
         lock.lock()
         defer { lock.unlock() }
 
-        if force == false,
+        let file = LocalPaths.claudeCredentialsFile
+        let values = try? file.resourceValues(forKeys: [.contentModificationDateKey, .fileSizeKey])
+        let signature = "\(file.path):\(values?.contentModificationDate?.timeIntervalSince1970 ?? 0):\(values?.fileSize ?? 0):\(ClaudeUsageReader.keychainServiceName())"
+        let interval = credentials?.expiresAt.map { $0 <= now } == true
+            ? ClaudeUsageRetryPolicy.authenticationRetryInterval
+            : ClaudeUsageRetryPolicy.authStatusRefreshInterval
+        if force == false, fileSignature == signature,
            let checkedAt,
-           now.timeIntervalSince(checkedAt) < ClaudeUsageRetryPolicy.authStatusRefreshInterval {
+           now.timeIntervalSince(checkedAt) < interval {
             return credentials
         }
 
         let loadedCredentials = loader()
         credentials = loadedCredentials
         checkedAt = now
+        fileSignature = signature
         return loadedCredentials
     }
 }
 
-private struct ClaudeOAuthCredentials {
+struct ClaudeOAuthCredentials: Sendable {
     let accessToken: String
     let refreshToken: String?
     let subscriptionType: String?
@@ -589,7 +652,7 @@ private struct ClaudeOAuthBlock: Decodable {
     }
 }
 
-private struct ClaudeOAuthUsage: Codable {
+struct ClaudeOAuthUsage: Codable, Sendable {
     let fiveHour: ClaudeOAuthUsageWindow?
     let sevenDay: ClaudeOAuthUsageWindow?
     let sevenDaySonnet: ClaudeOAuthUsageWindow?
@@ -605,7 +668,7 @@ private struct ClaudeOAuthUsage: Codable {
     }
 }
 
-private struct ClaudeOAuthUsageWindow: Codable {
+struct ClaudeOAuthUsageWindow: Codable, Sendable {
     let utilization: Double?
     let resetsAt: String?
 
@@ -619,7 +682,7 @@ private struct ClaudeOAuthUsageWindow: Codable {
     }
 }
 
-private struct ClaudeExtraUsage: Codable {
+struct ClaudeExtraUsage: Codable, Sendable {
     let isEnabled: Bool?
     let monthlyLimit: Double?
     let usedCredits: Double?
