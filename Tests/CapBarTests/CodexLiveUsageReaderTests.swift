@@ -2,6 +2,57 @@ import XCTest
 @testable import CapBar
 
 final class CodexLiveUsageReaderTests: XCTestCase {
+    func testConsecutiveRefreshesReadFreshUsageWithoutCacheDelay() async throws {
+        let responseURL = try temporaryResponseURL()
+        let reader = liveReader(responseURL: responseURL)
+        try writeUsage(current: 12, weekly: 34, to: responseURL)
+
+        let first = await reader.read()
+        XCTAssertEqual(first.current?.usedPercent, 12)
+        XCTAssertEqual(first.weekly?.usedPercent, 34)
+
+        try writeUsage(current: 56, weekly: 78, to: responseURL)
+        let second = await reader.read()
+        XCTAssertEqual(second.current?.usedPercent, 56)
+        XCTAssertEqual(second.weekly?.usedPercent, 78)
+        XCTAssertEqual(second.sourceDescription, "Codex live limits")
+        XCTAssertGreaterThanOrEqual(second.refreshedAt, first.refreshedAt)
+    }
+
+    func testRefreshRechecksAccountWithoutAnAuthFileChange() async throws {
+        let responseURL = try temporaryResponseURL()
+        let reader = liveReader(responseURL: responseURL)
+        try writeUsage(current: 12, weekly: 34, to: responseURL)
+        let loggedIn = await reader.read()
+        XCTAssertTrue(loggedIn.account.isLoggedIn)
+
+        try Data(#"{"account":null}"#.utf8).write(to: responseURL)
+        let loggedOut = await reader.read()
+        XCTAssertFalse(loggedOut.account.isLoggedIn)
+        XCTAssertNil(loggedOut.current)
+        XCTAssertNil(loggedOut.weekly)
+        XCTAssertEqual(loggedOut.sourceDescription, "Login required")
+    }
+
+    func testRefreshFallsBackOnFailureAndRetriesOnTheNextRefresh() async throws {
+        let responseURL = try temporaryResponseURL()
+        let reader = liveReader(responseURL: responseURL)
+        try writeUsage(current: 12, weekly: 34, to: responseURL)
+        let first = await reader.read()
+        XCTAssertEqual(first.current?.usedPercent, 12)
+
+        try FileManager.default.removeItem(at: responseURL)
+        let fallback = await reader.read()
+        XCTAssertEqual(fallback.sourceDescription, "No Codex sessions found")
+        XCTAssertNil(fallback.current)
+
+        try writeUsage(current: 56, weekly: 78, to: responseURL)
+        let recovered = await reader.read()
+        XCTAssertEqual(recovered.current?.usedPercent, 56)
+        XCTAssertEqual(recovered.weekly?.usedPercent, 78)
+        XCTAssertEqual(recovered.sourceDescription, "Codex live limits")
+    }
+
     func testChoosesCodexBucketOverOtherQuota() throws {
         let response = try decodeLimits("""
         {"rateLimits":{"limitId":"codex_other","primary":{"usedPercent":99}},
@@ -95,6 +146,40 @@ final class CodexLiveUsageReaderTests: XCTestCase {
 
     private func client(script: String, timeout: TimeInterval = 3) -> CodexAppServerClient {
         CodexAppServerClient(executableURL: URL(fileURLWithPath: "/bin/sh"), arguments: ["-c", script], timeout: timeout)
+    }
+
+    private func temporaryResponseURL() throws -> URL {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
+        return directory.appendingPathComponent("response.json")
+    }
+
+    private func liveReader(responseURL: URL) -> CodexLiveUsageReader {
+        let directory = responseURL.deletingLastPathComponent()
+        return CodexLiveUsageReader(
+            usageLoader: {
+                let data = try Data(contentsOf: responseURL)
+                let decoder = JSONDecoder()
+                return CodexAccountUsage(
+                    account: try decoder.decode(CodexAccountResponse.self, from: data).account,
+                    limits: try decoder.decode(CodexRateLimitsResponse.self, from: data).codexLimits
+                )
+            },
+            fallbackReader: CodexUsageReader(
+                sessionsURL: directory.appendingPathComponent("sessions"),
+                authURL: directory.appendingPathComponent("auth.json")
+            )
+        )
+    }
+
+    private func writeUsage(current: Int, weekly: Int, to url: URL) throws {
+        let response = """
+        {"account":{"type":"chatgpt","email":"test@example.com","planType":"plus"},
+         "rateLimits":{"limitId":"codex","primary":{"usedPercent":\(current)},
+         "secondary":{"usedPercent":\(weekly)}}}
+        """
+        try Data(response.utf8).write(to: url)
     }
 
     private func decodeLimits(_ json: String) throws -> CodexRateLimitsResponse {

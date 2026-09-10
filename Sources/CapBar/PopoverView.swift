@@ -228,7 +228,7 @@ struct PopoverView: View {
             HelpGuideRow(
                 systemName: "arrow.triangle.2.circlepath",
                 title: "Rotation and refresh",
-                detail: "Auto-refresh updates local usage and the UI. API spend is cached for five minutes; manual refresh requests it immediately."
+                detail: "Auto-refresh checks subscription usage at the selected interval. API spend is cached for five minutes; manual refresh requests it immediately."
             )
         }
         .background(palette.panelBackground, in: RoundedRectangle(cornerRadius: 8))

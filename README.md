@@ -191,7 +191,7 @@ Keys are stored locally in `~/Library/Application Support/CapBar/api-keys.json` 
 
 CapBar first queries the [documented Codex app-server account API](https://learn.chatgpt.com/docs/app-server) through the installed `codex` executable. It calls `account/read` and `account/rateLimits/read` without starting a conversation or model turn. Codex handles its own authentication, including file and Keychain storage. API-key accounts are identified explicitly; subscription limits require a ChatGPT login.
 
-Live queries are cached in memory for five minutes. Manual refresh bypasses this cache. The CLI exchange has a ten-second timeout and runs off the UI thread alongside the other provider checks.
+Live queries run on every automatic refresh at the selected interval, down to once every 30 seconds. Manual refresh performs the same fresh query immediately. The CLI exchange has a ten-second timeout and runs off the UI thread alongside the other provider checks.
 
 If the CLI or account query is unavailable, CapBar falls back to local Codex session files:
 
@@ -365,7 +365,7 @@ Available rotation intervals:
 
 CapBar refreshes automatically based on the selected interval. The default is `1 min`.
 
-This interval controls subscription checks and UI updates. Claude usage follows the selected interval down to `30 sec`; live Codex queries and API spend retain separate five-minute caches. Manual refresh bypasses successful-response caches, while Claude rate-limit backoff still applies.
+This interval controls subscription checks and UI updates. Live Codex queries and Claude usage follow the selected interval down to `30 sec`; API spend retains a separate five-minute cache. Manual refresh queries Codex immediately and bypasses successful-response caches for Claude and API spend, while Claude rate-limit backoff still applies.
 
 Available intervals:
 
@@ -382,7 +382,7 @@ Manual refresh uses the same refresh path and updates both:
 - the menu bar display
 - the popover rows
 
-If a refresh is already running, CapBar skips overlapping refresh requests.
+If a refresh is already running, CapBar skips overlapping automatic refresh requests and queues a manual refresh to run when the current refresh finishes.
 
 Provider reads run off the main actor so the UI does not block while local commands or network calls are running.
 

@@ -1,4 +1,3 @@
-import CryptoKit
 import Darwin
 import Foundation
 
@@ -7,23 +6,22 @@ import Foundation
 actor CodexLiveUsageReader {
     static let shared = CodexLiveUsageReader()
 
-    private var cached: CodexAccountUsage?
-    private var checkedAt: Date?
-    private var authFingerprint: String?
+    private let usageLoader: @Sendable () throws -> CodexAccountUsage
+    private let fallbackReader: CodexUsageReader
 
-    func read(force: Bool = false) -> ProviderSnapshot {
-        let now = Date()
-        let fingerprint = (try? Data(contentsOf: LocalPaths.codexAuthFile)).map {
-            SHA256.hash(data: $0).map { String(format: "%02x", $0) }.joined()
-        }
-        if force || fingerprint != authFingerprint || checkedAt.map({ now.timeIntervalSince($0) >= 300 }) ?? true {
-            cached = try? CodexAppServerClient().read()
-            checkedAt = now
-            authFingerprint = fingerprint
-        }
+    init(
+        usageLoader: @escaping @Sendable () throws -> CodexAccountUsage = { try CodexAppServerClient().read() },
+        fallbackReader: CodexUsageReader = CodexUsageReader()
+    ) {
+        self.usageLoader = usageLoader
+        self.fallbackReader = fallbackReader
+    }
 
-        guard let cached else { return CodexUsageReader().read() }
-        return cached.snapshot(refreshedAt: checkedAt ?? now)
+    func read() -> ProviderSnapshot {
+        // UsageStore owns the refresh cadence. Query on every automatic or manual
+        // refresh so a separate cache cannot override the selected interval.
+        guard let usage = try? usageLoader() else { return fallbackReader.read() }
+        return usage.snapshot(refreshedAt: Date())
     }
 }
 

@@ -112,7 +112,7 @@ final class UsageStore: ObservableObject {
         pendingAPIKeyRemovalProviderIDs.removeAll()
 
         let task = Task.detached(priority: .utility) { () -> ([ProviderSnapshot], [APIAccountSnapshot]) in
-            async let codex = CodexLiveUsageReader.shared.read(force: force)
+            async let codex = CodexLiveUsageReader.shared.read()
             async let claude = ClaudeUsageReader().read(force: force)
             async let codexAPI = APIAccountReader(provider: .codex).read(force: force)
             async let claudeAPI = APIAccountReader(provider: .claude).read(force: force)
