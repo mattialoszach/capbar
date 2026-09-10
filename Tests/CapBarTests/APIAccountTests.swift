@@ -347,6 +347,12 @@ final class APIAccountTests: XCTestCase {
                 now: now
             )
         )
+        XCTAssertFalse(
+            APISpendRetryPolicy.canUseCache(
+                fetchedAt: now.addingTimeInterval(60),
+                now: now
+            )
+        )
     }
 
     func testAPISpendMinimumFetchIntervalIsFiveMinutes() {

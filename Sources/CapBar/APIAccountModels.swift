@@ -155,7 +155,7 @@ enum APISpendRetryPolicy {
     static let maximumCachedSpendAge: TimeInterval = 24 * 60 * 60
 
     static func canUseCache(fetchedAt: Date, now: Date) -> Bool {
-        now.timeIntervalSince(fetchedAt) <= maximumCachedSpendAge
+        (0...maximumCachedSpendAge).contains(now.timeIntervalSince(fetchedAt))
     }
 }
 
