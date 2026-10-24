@@ -22,10 +22,17 @@ final class UsageStore: ObservableObject {
     private var pendingAPIKeyRemovalProviderIDs: Set<String> = []
     private let userDefaultsKey = "CapBar.UsageSettings.v2"
 
-    init() {
-        settings = Self.loadSettings(key: userDefaultsKey)
-        refresh()
-        configureRefreshTimer()
+    init(
+        settings: UsageSettings? = nil,
+        snapshotBatch: UsageSnapshotBatch = .empty,
+        automaticallyRefreshes: Bool = true
+    ) {
+        self.settings = settings ?? Self.loadSettings(key: userDefaultsKey)
+        self.snapshotBatch = snapshotBatch
+        if automaticallyRefreshes {
+            refresh()
+            configureRefreshTimer()
+        }
     }
 
     var snapshots: [ProviderSnapshot] {

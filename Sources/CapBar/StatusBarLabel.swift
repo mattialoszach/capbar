@@ -1,5 +1,11 @@
 import SwiftUI
 
+enum StatusBarLayout {
+    // Keep the popover anchor and neighboring menu bar items stationary in every mode.
+    static let itemWidth: CGFloat = 96
+    static let contentWidth: CGFloat = 95
+}
+
 struct StatusBarRenderModel: Equatable {
     struct Limit: Equatable {
         let fractionRemaining: Double
@@ -13,7 +19,6 @@ struct StatusBarRenderModel: Equatable {
 
     let provider: ProviderID
     let displayMode: MenuBarDisplayMode
-    let usesExpandedLayout: Bool
     let currentLimit: Limit
     let weeklyLimit: Limit
     let apiTodayText: String
@@ -26,8 +31,7 @@ struct StatusBarRenderModel: Equatable {
         subscriptionSnapshot: ProviderSnapshot,
         apiSnapshot: APIAccountSnapshot,
         apiMonthlyBudgetUSD: Double?,
-        displayMode: MenuBarDisplayMode,
-        usesExpandedLayout: Bool
+        displayMode: MenuBarDisplayMode
     ) {
         let spendSummary: APISpendSummary?
         if case let .spend(summary) = apiSnapshot.status {
@@ -38,7 +42,6 @@ struct StatusBarRenderModel: Equatable {
 
         provider = subscriptionSnapshot.provider
         self.displayMode = displayMode
-        self.usesExpandedLayout = usesExpandedLayout
         currentLimit = Limit(metric: subscriptionSnapshot.current)
         weeklyLimit = Limit(metric: subscriptionSnapshot.weekly)
         apiTodayText = Self.spendText(spendSummary?.todayUSD, summary: spendSummary)
@@ -93,25 +96,12 @@ struct StatusBarLabel: View {
                 }
             }
         }
-        .frame(width: contentWidth, height: 22, alignment: .leading)
+        .frame(width: StatusBarLayout.contentWidth, height: 22, alignment: .leading)
         .contentShape(Rectangle())
         .accessibilityLabel(model.accessibilityText)
         .transaction { transaction in
             transaction.animation = nil
             transaction.disablesAnimations = true
-        }
-    }
-
-    private var contentWidth: CGFloat {
-        if model.usesExpandedLayout {
-            return 95
-        }
-
-        switch model.displayMode {
-        case .subscription, .apiLimit:
-            return 95
-        case .api:
-            return 66
         }
     }
 }

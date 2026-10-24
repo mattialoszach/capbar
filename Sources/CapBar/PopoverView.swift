@@ -20,9 +20,9 @@ struct PopoverView: View {
                 usageContent
             }
         }
-        .animation(.providerSelection, value: selectedSnapshot.provider)
         .padding(EdgeInsets(top: 16, leading: 16, bottom: 16, trailing: 16))
         .frame(width: 360)
+        .fixedSize(horizontal: false, vertical: true)
         .overlay(alignment: .topTrailing) {
             popoverControls
         }
@@ -58,10 +58,6 @@ struct PopoverView: View {
         store.snapshot(for: store.settings.menuBarProvider)
     }
 
-    private var selectedProviderDisplayMode: MenuBarDisplayMode {
-        store.effectiveMenuBarDisplayMode(for: selectedSnapshot.provider)
-    }
-
     private var activeTourIndex: Int {
         guard let activeTourStep,
               let index = helpTourSteps.firstIndex(of: activeTourStep) else {
@@ -81,57 +77,81 @@ struct PopoverView: View {
         ProviderSelector(selection: menuBarProviderBinding)
             .tourTarget(.provider)
 
-        AccountLine(
-            snapshot: selectedSnapshot,
-            isRefreshing: store.isRefreshing,
-            onLogin: { store.runCLILogin(for: selectedSnapshot.provider) },
-            onRefresh: { store.refresh(force: true) }
-        )
-
-        VStack(spacing: 0) {
-            LimitRow(
-                metric: selectedSnapshot.current,
-                lowUsageColorsEnabled: store.settings.lowUsageColorsEnabled
-            )
-            StableDivider(color: palette.fieldDivider)
-                .padding(.leading, 2)
-            LimitRow(
-                metric: selectedSnapshot.weekly,
-                lowUsageColorsEnabled: store.settings.lowUsageColorsEnabled
-            )
-        }
-        .menuBarSelectionStyle(
-            provider: selectedSnapshot.provider,
-            isSelected: selectedProviderDisplayMode == .subscription
-        )
-        .doubleClickSelection {
-            store.setMenuBarDisplayMode(.subscription, for: selectedSnapshot.provider)
-        }
-        .tourTarget(.menuBarDisplay)
-
-        if store.settings.apiSectionVisible {
-            APIAccountSection(
-                snapshot: store.apiSnapshot(for: selectedSnapshot.provider),
-                provider: selectedSnapshot.provider,
-                isCheckingKey: store.isCheckingAPIKey(for: selectedSnapshot.provider),
-                isRemovingKey: store.isRemovingAPIKey(for: selectedSnapshot.provider),
-                lowUsageColorsEnabled: store.settings.lowUsageColorsEnabled,
-                monthlyBudgetUSD: store.settings.apiMonthlyBudgetUSD(for: selectedSnapshot.provider),
-                selectedDisplayMode: selectedProviderDisplayMode,
-                onSaveKey: { store.setAPIKey($0, for: selectedSnapshot.provider) },
-                onRemoveKey: { store.clearAPIKey(for: selectedSnapshot.provider) },
-                onSaveBudget: { store.setAPIMonthlyBudget($0, for: selectedSnapshot.provider) },
-                onSelectMenuBarDisplayMode: {
-                    store.setMenuBarDisplayMode($0, for: selectedSnapshot.provider)
+        // Size for both providers so switching never moves the selector or resizes the popover.
+        ZStack(alignment: .topLeading) {
+            ForEach(ProviderID.allCases) { provider in
+                let isSelected = store.settings.menuBarProvider == provider
+                VStack(alignment: .leading, spacing: 16) {
+                    providerContent(for: provider, isSelected: isSelected)
                 }
-            )
-            .tourTarget(.apiUsage)
+                .opacity(isSelected ? 1 : 0)
+                .allowsHitTesting(isSelected)
+                .disabled(!isSelected)
+                .accessibilityHidden(!isSelected)
+                .transformPreference(TourTargetPreferenceKey.self) { targets in
+                    if !isSelected { targets = [:] }
+                }
+            }
         }
 
         Text(selectedSnapshot.sourceDescription)
             .font(.system(size: 11, weight: .medium))
             .foregroundStyle(palette.tertiaryText)
             .lineLimit(1)
+    }
+
+    @ViewBuilder
+    private func providerContent(for provider: ProviderID, isSelected: Bool) -> some View {
+        let snapshot = store.snapshot(for: provider)
+        let displayMode = store.effectiveMenuBarDisplayMode(for: provider)
+
+        AccountLine(
+            snapshot: snapshot,
+            isRefreshing: store.isRefreshing && isSelected,
+            onLogin: { store.runCLILogin(for: provider) },
+            onRefresh: { store.refresh(force: true) }
+        )
+
+        VStack(spacing: 0) {
+            LimitRow(
+                metric: snapshot.current,
+                lowUsageColorsEnabled: store.settings.lowUsageColorsEnabled
+            )
+            StableDivider(color: palette.fieldDivider)
+                .padding(.leading, 2)
+            LimitRow(
+                metric: snapshot.weekly,
+                lowUsageColorsEnabled: store.settings.lowUsageColorsEnabled
+            )
+        }
+        .menuBarSelectionStyle(
+            provider: provider,
+            isSelected: displayMode == .subscription
+        )
+        .doubleClickSelection {
+            store.setMenuBarDisplayMode(.subscription, for: provider)
+        }
+        .tourTarget(.menuBarDisplay)
+
+        if store.settings.apiSectionVisible {
+            APIAccountSection(
+                snapshot: store.apiSnapshot(for: provider),
+                provider: provider,
+                isActive: isSelected,
+                isCheckingKey: store.isCheckingAPIKey(for: provider),
+                isRemovingKey: store.isRemovingAPIKey(for: provider),
+                lowUsageColorsEnabled: store.settings.lowUsageColorsEnabled,
+                monthlyBudgetUSD: store.settings.apiMonthlyBudgetUSD(for: provider),
+                selectedDisplayMode: displayMode,
+                onSaveKey: { store.setAPIKey($0, for: provider) },
+                onRemoveKey: { store.clearAPIKey(for: provider) },
+                onSaveBudget: { store.setAPIMonthlyBudget($0, for: provider) },
+                onSelectMenuBarDisplayMode: {
+                    store.setMenuBarDisplayMode($0, for: provider)
+                }
+            )
+            .tourTarget(.apiUsage)
+        }
     }
 
     @ViewBuilder
@@ -379,11 +399,7 @@ struct PopoverView: View {
     private var menuBarProviderBinding: Binding<ProviderID> {
         Binding(
             get: { store.settings.menuBarProvider },
-            set: { provider in
-                withAnimation(.providerSelection) {
-                    store.setMenuBarProvider(provider)
-                }
-            }
+            set: { store.setMenuBarProvider($0) }
         )
     }
 
@@ -902,6 +918,7 @@ private struct TourTargetMarker: View {
 private struct ProviderSelector: View {
     @Binding var selection: ProviderID
     @Environment(\.popoverPalette) private var palette
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Namespace private var selectionNamespace
 
     private let cellHeight: CGFloat = 28
@@ -913,9 +930,7 @@ private struct ProviderSelector: View {
             ForEach(ProviderID.allCases) { provider in
                 Button {
                     guard selection != provider else { return }
-                    withAnimation(.providerSelection) {
-                        selection = provider
-                    }
+                    selection = provider
                 } label: {
                     ZStack {
                         if selection == provider {
@@ -926,7 +941,7 @@ private struct ProviderSelector: View {
                                         .stroke(palette.selectedProviderStroke(for: provider), lineWidth: 1)
                                 )
                                 .shadow(color: palette.selectedProviderShadow(for: provider), radius: 5, y: 1)
-                                .matchedGeometryEffect(id: "selectedProvider", in: selectionNamespace)
+                                .matchedGeometryEffect(id: "selectedProvider", in: selectionNamespace, properties: .position)
                         }
 
                         HStack(spacing: 7) {
@@ -962,6 +977,7 @@ private struct ProviderSelector: View {
             RoundedRectangle(cornerRadius: 8)
                 .stroke(palette.panelStroke, lineWidth: 1)
         )
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: selection)
     }
 }
 
@@ -1187,12 +1203,11 @@ private struct AccountLine: View {
                 Text(snapshot.account.isLoggedIn ? "Logged in" : "Not logged in")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundStyle(statusColor)
-                if let detail = accountDetail {
-                    Text(detail)
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundStyle(detailColor)
-                        .lineLimit(1)
-                }
+                Text(accountDetail ?? " ")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(detailColor)
+                    .lineLimit(1)
+                    .accessibilityHidden(accountDetail == nil)
             }
 
             Spacer()
@@ -1399,6 +1414,7 @@ private enum UsageTone {
 private struct APIAccountSection: View {
     let snapshot: APIAccountSnapshot
     let provider: ProviderID
+    let isActive: Bool
     let isCheckingKey: Bool
     let isRemovingKey: Bool
     let lowUsageColorsEnabled: Bool
@@ -1450,8 +1466,8 @@ private struct APIAccountSection: View {
             RoundedRectangle(cornerRadius: 8)
                 .stroke(palette.panelStroke, lineWidth: 1)
         )
-        .onChange(of: provider) { _ in
-            cancelEditing()
+        .onChange(of: isActive) { active in
+            if !active { cancelEditing() }
         }
         .onReceive(NotificationCenter.default.publisher(for: NSPopover.didCloseNotification)) { _ in
             cancelEditing()
@@ -1807,6 +1823,7 @@ private struct APIKeyOptionsButton: NSViewRepresentable {
     let onRemoveKey: () -> Void
 
     @Environment(\.popoverPalette) private var palette
+    @Environment(\.isEnabled) private var isEnabled
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
@@ -1841,7 +1858,7 @@ private struct APIKeyOptionsButton: NSViewRepresentable {
         image?.isTemplate = true
         button.image = image
         button.contentTintColor = context.coordinator.currentTint
-        button.isEnabled = isDisabled == false
+        button.isEnabled = !isDisabled && isEnabled
     }
 
     @MainActor final class Coordinator: NSObject, NSMenuDelegate {
@@ -1913,8 +1930,4 @@ private struct APIKeyOptionsButton: NSViewRepresentable {
             button?.contentTintColor = currentTint
         }
     }
-}
-
-private extension Animation {
-    static let providerSelection = Animation.spring(response: 0.32, dampingFraction: 0.86, blendDuration: 0.08)
 }

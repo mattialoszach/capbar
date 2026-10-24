@@ -340,6 +340,8 @@ The generated app has `LSUIElement` enabled, so it runs as a menu bar accessory 
 
 The selected provider controls what appears in the menu bar. Double-click a provider field to choose what that provider shows: the subscription limits panel, the API spend row, or the API monthly limit row when a manual monthly budget is set. The popover always lets you switch between supported providers.
 
+Click outside the popover, press Escape, or click the menu bar item again to close it. Provider switching keeps the panel and menu bar item at a stable size.
+
 ## What The Menu Bar Shows
 
 The menu bar label is intentionally dense:

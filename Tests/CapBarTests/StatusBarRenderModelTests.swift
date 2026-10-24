@@ -21,8 +21,7 @@ final class StatusBarRenderModelTests: XCTestCase {
             subscriptionSnapshot: snapshot,
             apiSnapshot: .noKey(provider: snapshot.provider),
             apiMonthlyBudgetUSD: nil,
-            displayMode: .subscription,
-            usesExpandedLayout: false
+            displayMode: .subscription
         )
     }
 

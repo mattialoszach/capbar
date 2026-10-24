@@ -11,20 +11,17 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
     private var renderedModel: StatusBarRenderModel
     private var cancellables = Set<AnyCancellable>()
     private var providerRotationTimer: Timer?
-    private var frozenStatusItemLength: CGFloat?
-    private static let expandedStatusItemLength: CGFloat = 96
+    private var localEventMonitor: Any?
+    private var globalEventMonitor: Any?
 
     init(store: UsageStore) {
         self.store = store
-        statusItem = NSStatusBar.system.statusItem(
-            withLength: Self.statusItemLength(for: store.menuBarDisplayMode)
-        )
+        statusItem = NSStatusBar.system.statusItem(withLength: StatusBarLayout.itemWidth)
         let initialModel = StatusBarRenderModel(
             subscriptionSnapshot: store.menuBarSnapshot,
             apiSnapshot: store.menuBarAPISnapshot,
             apiMonthlyBudgetUSD: store.menuBarAPIMonthlyBudgetUSD,
-            displayMode: store.menuBarDisplayMode,
-            usesExpandedLayout: false
+            displayMode: store.menuBarDisplayMode
         )
         renderedModel = initialModel
         hostingView = NSHostingView(rootView: StatusBarLabel(model: initialModel))
@@ -59,7 +56,7 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
 
     private func configurePopover() {
         popover.behavior = .transient
-        popover.animates = true
+        popover.animates = false
         popover.delegate = self
         let hostingController = NSHostingController(
             rootView: PopoverView(store: store, onQuit: { [weak self] in
@@ -97,17 +94,11 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
     }
 
     private func updateStatusBarLabel() {
-        let statusItemLength = frozenStatusItemLength ?? Self.statusItemLength(for: store.menuBarDisplayMode)
-        if statusItem.length != statusItemLength {
-            statusItem.length = statusItemLength
-        }
-
         let model = StatusBarRenderModel(
             subscriptionSnapshot: store.menuBarSnapshot,
             apiSnapshot: store.menuBarAPISnapshot,
             apiMonthlyBudgetUSD: store.menuBarAPIMonthlyBudgetUSD,
-            displayMode: store.menuBarDisplayMode,
-            usesExpandedLayout: frozenStatusItemLength != nil
+            displayMode: store.menuBarDisplayMode
         )
         guard model != renderedModel else { return }
         renderedModel = model
@@ -119,15 +110,6 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         }
     }
 
-    private static func statusItemLength(for displayMode: MenuBarDisplayMode) -> CGFloat {
-        switch displayMode {
-        case .subscription, .apiLimit:
-            return expandedStatusItemLength
-        case .api:
-            return 66
-        }
-    }
-
     @objc private func togglePopover() {
         guard let button = statusItem.button else { return }
 
@@ -136,17 +118,75 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
         } else {
             pauseProviderRotation()
             NSApplication.shared.activate(ignoringOtherApps: true)
-            frozenStatusItemLength = Self.expandedStatusItemLength
-            updateStatusBarLabel()
+            // Opening and content resizing stay instant; only dismissal animates.
+            popover.animates = false
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
             popover.contentViewController?.view.window?.makeKey()
         }
     }
 
+    func popoverDidShow(_ notification: Notification) {
+        startEventMonitoring()
+    }
+
+    func popoverShouldClose(_ popover: NSPopover) -> Bool {
+        popover.animates = true
+        return true
+    }
+
+    func popoverWillClose(_ notification: Notification) {
+        stopEventMonitoring()
+    }
+
     func popoverDidClose(_ notification: Notification) {
-        frozenStatusItemLength = nil
-        updateStatusBarLabel()
+        stopEventMonitoring()
+        popover.animates = false
         configureProviderRotationTimer()
+    }
+
+    private func startEventMonitoring() {
+        stopEventMonitoring()
+        let mouseEvents: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+
+        globalEventMonitor = NSEvent.addGlobalMonitorForEvents(matching: mouseEvents) { [weak self] _ in
+            // AppKit delivers event monitor callbacks on the main thread.
+            MainActor.assumeIsolated {
+                self?.closePopoverIfShown()
+            }
+        }
+
+        localEventMonitor = NSEvent.addLocalMonitorForEvents(matching: mouseEvents.union(.keyDown)) { [weak self] event in
+            let consumed = MainActor.assumeIsolated {
+                guard let self, self.popover.isShown else { return false }
+
+                // Native menus and sheets must keep handling their own input.
+                if event.type == .keyDown {
+                    if event.keyCode == 53, event.window === self.popover.contentViewController?.view.window {
+                        self.closePopoverIfShown()
+                        return true
+                    }
+                } else if PopoverInteraction.shouldDismiss(
+                    for: event.window,
+                    popoverWindow: self.popover.contentViewController?.view.window,
+                    statusItemWindow: self.statusItem.button?.window
+                ) {
+                    self.closePopoverIfShown()
+                }
+                return false
+            }
+            return consumed ? nil : event
+        }
+    }
+
+    private func stopEventMonitoring() {
+        if let localEventMonitor {
+            NSEvent.removeMonitor(localEventMonitor)
+            self.localEventMonitor = nil
+        }
+        if let globalEventMonitor {
+            NSEvent.removeMonitor(globalEventMonitor)
+            self.globalEventMonitor = nil
+        }
     }
 
     private func quitApplication() {
@@ -181,5 +221,26 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
     private func pauseProviderRotation() {
         providerRotationTimer?.invalidate()
         providerRotationTimer = nil
+    }
+}
+
+enum PopoverInteraction {
+    @MainActor
+    static func shouldDismiss(
+        for eventWindow: NSWindow?,
+        popoverWindow: NSWindow?,
+        statusItemWindow: NSWindow?
+    ) -> Bool {
+        guard let eventWindow else { return true }
+        if eventWindow === statusItemWindow || eventWindow.level == .popUpMenu {
+            return false
+        }
+
+        var window: NSWindow? = eventWindow
+        while let current = window {
+            if current === popoverWindow { return false }
+            window = current.parent ?? current.sheetParent
+        }
+        return true
     }
 }
