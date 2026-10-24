@@ -48,14 +48,24 @@ if [[ "${NOTARIZE:-0}" == "1" && -z "${CODESIGN_IDENTITY:-}" ]]; then
   exit 1
 fi
 
-swift build -c release
+# Swift 6.4's Swift Build engine can stamp the deployment target as the SDK
+# version, which makes macOS use legacy controls and popover chrome. The native
+# engine preserves the real SDK version while still supporting macOS 13.
+swift build --build-system native -c release
+
+SDK_VERSION="$(xcrun --sdk macosx --show-sdk-version)"
+LINKED_SDK_VERSION="$(xcrun vtool -show-build .build/release/CapBar | awk '$1 == "sdk" { print $2; exit }')"
+if [[ "${LINKED_SDK_VERSION%%.*}" != "${SDK_VERSION%%.*}" ]]; then
+  echo "error: built app reports SDK $LINKED_SDK_VERSION instead of $SDK_VERSION; refusing to package legacy macOS styling" >&2
+  exit 1
+fi
 
 rm -rf "$APP_DIR" "$ICONSET_DIR" "$ZIP_PATH"
 mkdir -p "$MACOS_DIR" "$RESOURCES_DIR"
 cp ".build/release/CapBar" "$MACOS_DIR/CapBar"
 
-RESOURCE_BUNDLE="$(find .build -path '*/release/CapBar_CapBar.bundle' -type d -print -quit)"
-if [[ -n "$RESOURCE_BUNDLE" ]]; then
+RESOURCE_BUNDLE=".build/release/CapBar_CapBar.bundle"
+if [[ -d "$RESOURCE_BUNDLE" ]]; then
   cp -R "$RESOURCE_BUNDLE" "$RESOURCES_DIR/"
 fi
 

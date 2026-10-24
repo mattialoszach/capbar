@@ -133,7 +133,7 @@ Because the build is ad-hoc signed rather than notarized, macOS may still warn o
 For development, launch CapBar directly from the repository:
 
 ```sh
-swift run CapBar
+swift run --build-system native CapBar
 ```
 
 ## Features
@@ -271,6 +271,8 @@ dist/CapBar-macOS.zip
 ```text
 docs/images/capbar-icon.png
 ```
+
+The package script uses SwiftPM's native build engine and checks the linked SDK version. This preserves the current macOS appearance for controls, borders, and popover corners while retaining macOS 13 compatibility. Some Swift 6.4 builds using the default build engine report the minimum supported OS as the SDK version, which causes macOS to display legacy styling.
 
 ### Optional Code Signing
 
@@ -493,11 +495,11 @@ Values may remain unchanged if usage has not changed, Codex is using the local f
 
 ## Compatibility Checks
 
-Run the offline regression suite with `swift test`. It covers the Codex account protocol, multiple quota buckets, timeouts, Claude cache isolation, and pricing calculations. Optional integration checks use your installed CLI sign-ins and print no credentials:
+Run the offline regression suite with `swift test --build-system native`. It covers the Codex account protocol, multiple quota buckets, timeouts, Claude cache isolation, and pricing calculations. Optional integration checks use your installed CLI sign-ins and print no credentials:
 
 ```sh
-CAPBAR_TEST_LIVE_CODEX=1 swift test --filter CodexLiveUsageReaderTests.testInstalledCodexSmokeTestWhenEnabled
-CAPBAR_TEST_LIVE_CLAUDE=1 swift test --filter ClaudeUsageReaderTests.testInstalledClaudeSmokeTestWhenEnabled
+CAPBAR_TEST_LIVE_CODEX=1 swift test --build-system native --filter CodexLiveUsageReaderTests.testInstalledCodexSmokeTestWhenEnabled
+CAPBAR_TEST_LIVE_CLAUDE=1 swift test --build-system native --filter ClaudeUsageReaderTests.testInstalledClaudeSmokeTestWhenEnabled
 ```
 
 The Claude integration check uses the normal usage cache and requires an available subscription usage response. Default tests use fixtures and do not contact provider APIs.
