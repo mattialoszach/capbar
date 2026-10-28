@@ -117,11 +117,12 @@ final class StatusItemController: NSObject, NSPopoverDelegate {
             popover.performClose(nil)
         } else {
             pauseProviderRotation()
-            // Let the nonactivating popover manage keyboard focus so the user's
-            // current app stays active.
             // Opening and content resizing stay instant; only dismissal animates.
             popover.animates = false
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+            // The nonactivating popover can be key without activating CapBar.
+            // Give its controls their active appearance immediately on opening.
+            popover.contentViewController?.view.window?.makeKey()
         }
     }
 
